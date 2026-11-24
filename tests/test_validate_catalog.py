@@ -1,3 +1,4 @@
+import ast
 import hashlib
 import importlib.util
 import json
@@ -8,6 +9,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -175,11 +177,21 @@ def create_valid_tree(root):
     (root / "scripts").mkdir(parents=True, exist_ok=True)
     (root / "tests").mkdir(parents=True, exist_ok=True)
     (root / ".github" / "workflows").mkdir(parents=True, exist_ok=True)
+    (root / ".gitattributes").write_text(
+        "* text=auto\n"
+        "*.json text eol=lf\n"
+        "*.py text eol=lf\n"
+        "*.yml text eol=lf\n"
+        "*.yaml text eol=lf\n"
+        "*.md text eol=lf\n"
+        "*.txt text eol=lf\n"
+        ".gitattributes text eol=lf\n",
+        encoding="utf-8",
+    )
     (root / "scripts" / "validate_catalog.py").write_text("# fixture\n", encoding="utf-8")
     (root / "tests" / "test_validate_catalog.py").write_text("# fixture\n", encoding="utf-8")
     (root / "README.md").write_text("Synthetic recap design catalog.\n", encoding="utf-8")
     (root / "SECURITY.md").write_text("Report issues without sensitive data.\n", encoding="utf-8")
-    (root / ".github" / "CODEOWNERS").write_text("* @cfei_microsoft\n", encoding="utf-8")
     (root / ".github" / "workflows" / "validate.yml").write_text(
         "name: validate\n", encoding="utf-8"
     )
@@ -206,6 +218,89 @@ class CatalogValidationTests(unittest.TestCase):
         summary = self.validator.validate_repository(ROOT)
         self.assertEqual("v001", summary["release"])
         self.assertEqual(1, summary["designs"])
+
+    def test_lf_git_blob_hashes_are_catalog_authority(self):
+        hashed_paths = (
+            "catalog/releases/v001/designs/status-actions/design.json",
+            "schemas/catalog-pointer.schema.json",
+            "schemas/release.schema.json",
+            "schemas/design.schema.json",
+        )
+        manifest_path = "catalog/releases/v001/manifest.json"
+        validator_path = "scripts/validate_catalog.py"
+        staged_bytes_by_path = {}
+        for relative in hashed_paths + (manifest_path, validator_path):
+            worktree_bytes = (ROOT / relative).read_bytes()
+            index_bytes = subprocess.check_output(
+                ["git", "show", f":{relative}"],
+                cwd=ROOT,
+            )
+            self.assertNotIn(b"\r\n", worktree_bytes, relative)
+            self.assertEqual(index_bytes, worktree_bytes, relative)
+            staged_bytes_by_path[relative] = index_bytes
+
+        manifest = json.loads(
+            staged_bytes_by_path[manifest_path].decode("utf-8")
+        )
+        self.assertEqual(
+            hashlib.sha256(
+                staged_bytes_by_path[
+                    "catalog/releases/v001/designs/status-actions/design.json"
+                ]
+            ).hexdigest(),
+            manifest["designs"][0]["sha256"],
+        )
+        validator_tree = ast.parse(
+            staged_bytes_by_path[validator_path].decode("utf-8")
+        )
+        schema_hashes = None
+        for node in validator_tree.body:
+            if (
+                isinstance(node, ast.Assign)
+                and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and node.targets[0].id == "SCHEMA_HASHES"
+            ):
+                schema_hashes = ast.literal_eval(node.value)
+                break
+        self.assertIsNotNone(schema_hashes)
+        self.assertEqual(
+            {
+                "catalog-pointer.schema.json": hashlib.sha256(
+                    staged_bytes_by_path["schemas/catalog-pointer.schema.json"]
+                ).hexdigest(),
+                "release.schema.json": hashlib.sha256(
+                    staged_bytes_by_path["schemas/release.schema.json"]
+                ).hexdigest(),
+                "design.schema.json": hashlib.sha256(
+                    staged_bytes_by_path["schemas/design.schema.json"]
+                ).hexdigest(),
+            },
+            schema_hashes,
+        )
+
+    def test_gitattributes_forces_lf_for_hashed_text(self):
+        self.assertIn(".gitattributes", self.validator.REQUIRED_PATHS)
+        for relative in (
+            "catalog/current.json",
+            "catalog/releases/v001/manifest.json",
+            "catalog/releases/v001/designs/status-actions/design.json",
+            "schemas/design.schema.json",
+            "scripts/validate_catalog.py",
+            ".github/workflows/validate.yml",
+            "README.md",
+        ):
+            attribute = subprocess.check_output(
+                ["git", "check-attr", "eol", "--", relative],
+                cwd=ROOT,
+                text=True,
+            )
+            self.assertIn("eol: lf", attribute, relative)
+
+    def test_personal_repo_governance_has_no_codeowners(self):
+        self.assertFalse((ROOT / ".github/CODEOWNERS").exists())
+        self.assertNotIn(".github/CODEOWNERS", self.validator.REQUIRED_PATHS)
+        self.assertFalse(self.validator.is_allowed_path(".github/CODEOWNERS"))
 
     def test_closed_schemas(self):
         temporary, root = self.with_tree()
@@ -355,13 +450,126 @@ class CatalogValidationTests(unittest.TestCase):
         base = self._git(root, "rev-parse", "HEAD").strip()
         readme = root / "README.md"
         readme.write_text("Synthetic recap design catalog.\nUpdated.\n", encoding="utf-8")
-        self.validator.validate_repository(root, base_ref=base)
         self._git(root, "add", "README.md")
         self._git(root, "commit", "-m", "docs")
+        self.validator.validate_repository(root, base_ref=base)
         design_path = root / "catalog/releases/v001/designs/status-actions/design.json"
         design_path.write_text(design_path.read_text() + " ", encoding="utf-8")
         with self.assertRaises(self.validator.ValidationError):
             self.validator.validate_immutable_releases(root, base)
+
+    def test_exact_lf_manifest_migration_from_bootstrap_base_is_allowed(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name) / "clone"
+        self._git(
+            root.parent,
+            "clone",
+            "--no-hardlinks",
+            str(ROOT),
+            str(root),
+        )
+        base = "c4213d051263810bbdfa0793d2d8f2192258ed50"
+        self.validator.validate_immutable_releases(root, base)
+
+        manifest_path = root / "catalog/releases/v001/manifest.json"
+        corrected_manifest = manifest_path.read_bytes()
+        manifest_path.write_bytes(corrected_manifest + b" ")
+        self._git(root, "add", "catalog/releases/v001/manifest.json")
+        manifest_path.write_bytes(corrected_manifest)
+        with self.assertRaises(self.validator.ValidationError):
+            self.validator.validate_immutable_releases(root, base)
+
+        self._git(root, "add", "catalog/releases/v001/manifest.json")
+        manifest_path.write_bytes(corrected_manifest + b" ")
+        with self.assertRaises(self.validator.ValidationError):
+            self.validator.validate_immutable_releases(root, base)
+
+    def test_recreated_legacy_content_on_different_history_is_rejected(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        release = root / "catalog/releases/v001"
+        design_source = (
+            ROOT
+            / "catalog/releases/v001/designs/status-actions/design.json"
+        ).read_bytes()
+        corrected_manifest = (
+            ROOT / "catalog/releases/v001/manifest.json"
+        ).read_bytes()
+        legacy_manifest = corrected_manifest.replace(
+            b"78533a7c60f9d2d0d9508f7382989d9904bf4e6a9f9fd2a38bf5b70ab2e8ed48",
+            b"9f4081261f7b102308d7eada1b5c199c9b116dc80c3f0acee87b9a2a8ae17db4",
+        )
+        design_path = release / "designs/status-actions/design.json"
+        design_path.parent.mkdir(parents=True)
+        design_path.write_bytes(design_source)
+        (release / "manifest.json").write_bytes(legacy_manifest)
+        self._git(root, "init", "-b", "main")
+        self._git(root, "config", "user.name", "Catalog Test")
+        self._git(root, "config", "user.email", "catalog" + "@example.invalid")
+        self._git(root, "add", ".")
+        self._git(root, "commit", "-m", "legacy")
+        base = self._git(root, "rev-parse", "HEAD").strip()
+        (root / "README.md").write_text("second commit\n", encoding="utf-8")
+        self._git(root, "add", "README.md")
+        self._git(root, "commit", "-m", "branch")
+
+        manifest_path = release / "manifest.json"
+        manifest_path.write_bytes(corrected_manifest)
+        self._git(root, "add", "catalog/releases/v001/manifest.json")
+        with self.assertRaises(self.validator.ValidationError):
+            self.validator.validate_immutable_releases(root, base)
+
+    def test_immutable_git_failures_fail_closed(self):
+        failed = subprocess.CompletedProcess(
+            args=["git"],
+            returncode=2,
+            stdout="",
+            stderr="git failure",
+        )
+        with mock.patch.object(self.validator, "git", return_value=failed):
+            with self.assertRaises(self.validator.ValidationError):
+                self.validator.validate_immutable_releases(ROOT, "main")
+
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        manifest_path = root / "catalog/releases/v001/manifest.json"
+        manifest_path.parent.mkdir(parents=True)
+        manifest_path.write_text("{}\n", encoding="utf-8")
+        git_results = [
+            subprocess.CompletedProcess(["git"], 0, "head parent\n", ""),
+            subprocess.CompletedProcess(["git"], 0, "base\n", ""),
+            subprocess.CompletedProcess(
+                ["git"],
+                0,
+                "catalog/releases/v001/manifest.json\n",
+                "",
+            ),
+            failed,
+        ]
+        with mock.patch.object(self.validator, "git", side_effect=git_results):
+            with mock.patch.object(
+                self.validator,
+                "is_exact_lf_hash_migration",
+                return_value=True,
+            ):
+                with self.assertRaises(self.validator.ValidationError):
+                    self.validator.validate_immutable_releases(root, "main")
+
+    def test_readme_documents_sole_migration_exception_and_production_gate(self):
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        lowered = " ".join(readme.lower().split())
+        self.assertIn(
+            "c4213d051263810bbdfa0793d2d8f2192258ed50",
+            readme,
+        )
+        self.assertIn("sole historical immutability exception", lowered)
+        self.assertIn("sox recap team", lowered)
+        self.assertIn("team codeowners", lowered)
+        self.assertIn("independent code-owner approval", lowered)
+        self.assertIn("must not be enabled", lowered)
 
     def test_examples_match_plugin_contract(self):
         self.validator.validate_examples(
@@ -787,7 +995,7 @@ class CatalogValidationTests(unittest.TestCase):
             "examples/Status Actions.json",
             "schemas/a.schema.json",
             "schemas/Response.schema.json",
-            ".github/CODEOWNERS",
+            ".gitattributes",
         ):
             self.assertTrue(self.validator.is_allowed_path(path), path)
         for path in (
@@ -798,6 +1006,7 @@ class CatalogValidationTests(unittest.TestCase):
             "examples/a.txt",
             "schemas/a.json",
             "tests/__init__.py",
+            ".github/CODEOWNERS",
         ):
             self.assertFalse(self.validator.is_allowed_path(path), path)
         self.assertNotIn("tests/__init__.py", self.validator.REQUIRED_PATHS)
@@ -955,7 +1164,17 @@ class CatalogValidationTests(unittest.TestCase):
                 finally:
                     temporary.cleanup()
 
-    def test_root_bootstrap_skips_only_immutable_comparison(self):
+    def test_exact_bootstrap_commit_may_skip_parent_comparison(self):
+        ancestry = subprocess.CompletedProcess(
+            args=["git"],
+            returncode=0,
+            stdout="c4213d051263810bbdfa0793d2d8f2192258ed50\n",
+            stderr="",
+        )
+        with mock.patch.object(self.validator, "git", return_value=ancestry):
+            self.validator.validate_immutable_releases(ROOT, "HEAD^")
+
+    def test_unrelated_root_commit_fails_closed(self):
         temporary, root = self.with_tree()
         self.addCleanup(temporary.cleanup)
         self._git(root, "init", "-b", "main")
@@ -963,7 +1182,8 @@ class CatalogValidationTests(unittest.TestCase):
         self._git(root, "config", "user.email", "catalog" + "@example.invalid")
         self._git(root, "add", ".")
         self._git(root, "commit", "-m", "bootstrap")
-        self.validator.validate_repository(root, base_ref="HEAD^")
+        with self.assertRaises(self.validator.ValidationError):
+            self.validator.validate_repository(root, base_ref="HEAD^")
 
     def test_previous_release_is_audit_metadata_only(self):
         temporary, root = self.with_tree()

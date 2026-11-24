@@ -69,6 +69,11 @@ REQUIRED_PATHS = {
     "examples/status-actions-request.json",
     "examples/status-actions-response.json",
 }
+SCHEMA_HASHES = {
+    "catalog-pointer.schema.json": "1836ea2a68154fbb3cfa089575a855a53925362aed17c7cdbccff1257e0ce3bb",
+    "release.schema.json": "c1ed4b99a5c2fbe6b6ae795af63815fbcf4fd948aacfa3a82cd0b7a3f1e7132b",
+    "design.schema.json": "192a902358ff3818b087d0675c66961a418e6fc5a2d730aa21e0fe1ebd3af328",
+}
 
 
 class ValidationError(Exception):
@@ -562,6 +567,13 @@ def scan_text_files(files):
 
 
 def validate_schema_artifacts(root):
+    for name, expected_hash in SCHEMA_HASHES.items():
+        path = root / "schemas" / name
+        require(
+            hashlib.sha256(path.read_bytes()).hexdigest() == expected_hash,
+            "schema artifact differs from the approved grammar",
+            "schema",
+        )
     pointer = load_json(root / "schemas/catalog-pointer.schema.json", DESIGN_LIMIT)
     release = load_json(root / "schemas/release.schema.json", DESIGN_LIMIT)
     design = load_json(root / "schemas/design.schema.json", DESIGN_LIMIT)
@@ -735,7 +747,14 @@ def main(argv=None):
     arguments = parser.parse_args(argv)
     try:
         summary = validate_repository(Path(__file__).resolve().parents[1], arguments.base_ref)
-    except (ValidationError, OSError, TypeError, ValueError, RecursionError):
+    except (
+        ValidationError,
+        OSError,
+        KeyError,
+        TypeError,
+        ValueError,
+        RecursionError,
+    ):
         print(
             json.dumps(
                 {"status": "error", "error": "validation-failed"},

@@ -403,6 +403,17 @@ class CatalogValidationTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         write_json(root / "schemas/design.schema.json", {})
         self.assert_invalid(root, "schema artifact")
+        create_valid_tree(root)
+        schema_path = root / "schemas/design.schema.json"
+        weakened = json.loads(schema_path.read_text(encoding="utf-8"))
+        weakened["properties"]["priority"]["maximum"] = 1001
+        write_json(schema_path, weakened)
+        self.assert_invalid(root, "schema artifact")
+        create_valid_tree(root)
+        malformed = json.loads(schema_path.read_text(encoding="utf-8"))
+        del malformed["properties"]["profiles"]
+        write_json(schema_path, malformed)
+        self.assert_invalid(root, "schema artifact")
 
     def test_identifier_and_path_boundaries(self):
         valid_release_ids = ("v001", "v999")
@@ -510,7 +521,67 @@ class CatalogValidationTests(unittest.TestCase):
         write_json(release_root / "manifest.json", manifest)
         self.assert_invalid(root4, "release byte limit")
 
+        temporary5, root5 = self.with_tree()
+        self.addCleanup(temporary5.cleanup)
+        release_root = root5 / "catalog/releases/v001"
+        shutil.rmtree(release_root / "designs")
+        design_ids = ["status-actions"] + [f"d{index}" for index in range(1, 8)]
+        entries = [
+            {
+                "id": design_id,
+                "path": f"designs/{design_id}/design.json",
+                "sha256": "0" * 64,
+            }
+            for design_id in design_ids
+        ]
+        manifest_path = release_root / "manifest.json"
+        manifest = {
+            "schemaVersion": "recap-design-release/1.0",
+            "id": "v001",
+            "status": "approved",
+            "designs": entries,
+        }
+        write_json(manifest_path, manifest)
+        design_total = (512 * 1024) - manifest_path.stat().st_size
+        base_size, remainder = divmod(design_total, len(design_ids))
+        for index, design_id in enumerate(design_ids):
+            path = release_root / "designs" / design_id / "design.json"
+            write_json(path, design_value(design_id))
+            target_size = base_size + (1 if index < remainder else 0)
+            path.write_bytes(path.read_bytes() + b" " * (target_size - path.stat().st_size))
+            entries[index]["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        write_json(manifest_path, manifest)
+        exact_total = manifest_path.stat().st_size + sum(
+            (release_root / entry["path"]).stat().st_size for entry in entries
+        )
+        self.assertEqual(512 * 1024, exact_total)
+        self.validator.validate_repository(root5)
+        final_design = release_root / entries[-1]["path"]
+        final_design.write_bytes(final_design.read_bytes() + b" ")
+        entries[-1]["sha256"] = hashlib.sha256(final_design.read_bytes()).hexdigest()
+        write_json(manifest_path, manifest)
+        self.assert_invalid(root5, "release byte limit")
+
     def test_design_count_boundaries(self):
+        for count in (0, 1):
+            entries = [
+                {
+                    "id": "d0",
+                    "path": "designs/d0/design.json",
+                    "sha256": "0" * 64,
+                }
+            ][:count]
+            manifest = {
+                "schemaVersion": "recap-design-release/1.0",
+                "id": "v001",
+                "status": "approved",
+                "designs": entries,
+            }
+            if count == 0:
+                with self.assertRaises(self.validator.ValidationError):
+                    self.validator.validate_manifest_shape(manifest)
+            else:
+                self.validator.validate_manifest_shape(manifest)
         for count in (29, 30):
             entries = [
                 {
@@ -545,6 +616,41 @@ class CatalogValidationTests(unittest.TestCase):
                     "designs": entries,
                 }
             )
+        for bad_hash in ("0" * 63, "0" * 65, "A" * 64):
+            with self.assertRaises(self.validator.ValidationError):
+                self.validator.validate_manifest_shape(
+                    {
+                        "schemaVersion": "recap-design-release/1.0",
+                        "id": "v001",
+                        "status": "approved",
+                        "designs": [
+                            {
+                                "id": "d0",
+                                "path": "designs/d0/design.json",
+                                "sha256": bad_hash,
+                            }
+                        ],
+                    }
+                )
+
+    def test_allowed_path_pattern_boundaries(self):
+        for path in (
+            "catalog/releases/v001/manifest.json",
+            "catalog/releases/v999/designs/a/design.json",
+            "examples/a.json",
+            "schemas/a.schema.json",
+            ".github/CODEOWNERS",
+        ):
+            self.assertTrue(self.validator.is_allowed_path(path), path)
+        for path in (
+            "catalog/releases/v000/manifest.json",
+            "catalog/releases/v1000/manifest.json",
+            "catalog/releases/v001/designs/A/design.json",
+            "catalog/releases/v001/designs/a/extra.json",
+            "examples/a.txt",
+            "schemas/a.json",
+        ):
+            self.assertFalse(self.validator.is_allowed_path(path), path)
 
     def test_design_rule_boundaries_and_publication_probes(self):
         design = design_value()
@@ -619,6 +725,40 @@ class CatalogValidationTests(unittest.TestCase):
             candidate["appliesWhen"]["maximumUnits"] = maximum
             with self.assertRaises(self.validator.ValidationError):
                 self.validator.validate_design_shape(candidate)
+
+        thirteen_forms = json.loads(json.dumps(valid))
+        thirteen_forms["appliesWhen"] = {
+            "requiredForms": list(self.validator.FORMS),
+            "minimumUnits": 13,
+            "maximumUnits": 30,
+        }
+        self.validator.validate_design_shape(thirteen_forms)
+        fourteen_forms = json.loads(json.dumps(thirteen_forms))
+        fourteen_forms["appliesWhen"]["requiredForms"].append("tasks")
+        with self.assertRaises(self.validator.ValidationError):
+            self.validator.validate_design_shape(fourteen_forms)
+
+        fourteen_rules = json.loads(json.dumps(valid))
+        fourteen_rules["profiles"]["cowork-native"]["rules"] = [
+            {
+                "kind": "form",
+                "form": form,
+                "title": {"kind": "block-title"},
+            }
+            for form in self.validator.FORMS
+        ] + [{"kind": "remaining", "title": {"kind": "block-title"}}]
+        self.validator.validate_design_shape(fourteen_rules)
+        fifteen_rules = json.loads(json.dumps(fourteen_rules))
+        fifteen_rules["profiles"]["cowork-native"]["rules"].insert(
+            0,
+            {
+                "kind": "form",
+                "form": "tasks",
+                "title": {"kind": "block-title"},
+            },
+        )
+        with self.assertRaises(self.validator.ValidationError):
+            self.validator.validate_design_shape(fifteen_rules)
 
     def test_bootstrap_and_release_change_matrix(self):
         scenarios = ("changed", "deleted", "renamed", "added")
@@ -698,6 +838,10 @@ class WorkflowSafetyTests(unittest.TestCase):
         self.assertNotIn("pull_request_target", lowered)
         self.assertNotIn("workflow_run", lowered)
         self.assertNotIn("repository_dispatch", lowered)
+        self.assertNotIn("workflow_dispatch", lowered)
+        self.assertNotIn("schedule:", lowered)
+        self.assertNotIn("issue_comment", lowered)
+        self.assertNotIn("environment:", lowered)
         self.assertNotIn("secrets.", lowered)
         self.assertNotRegex(lowered, r"\bwrite\b")
         uses = re.findall(r"^\s*uses:\s*(\S+)", workflow, re.MULTILINE)

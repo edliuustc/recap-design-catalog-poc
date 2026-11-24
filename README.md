@@ -29,5 +29,6 @@ the pointer rather than editing or deleting an existing release.
 ## Contribution boundary
 
 Submit only newly authored synthetic JSON and repository tooling. Do not submit
-private source material, private links, customer or employee data, secrets,
-screenshots, generated assets, or content copied from another repository.
+Internal Designer content, private source material, private links, customer or
+employee data, secrets, screenshots, generated assets, or content copied from
+another repository.

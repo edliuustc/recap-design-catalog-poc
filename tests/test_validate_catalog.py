@@ -296,6 +296,12 @@ class CatalogValidationTests(unittest.TestCase):
             "[label" + inline + "<>)",
             "[label][target]\n[target" + definition + " <>",
             "[foo\\]" + definition + " ./private/escaped-label",
+            "[legacy"
+            + inline
+            + "https:"
+            + "//github.com/"
+            + "edliu_"
+            + "microsoft/recap-design-catalog-poc)",
         ]
         for text in forbidden_destinations:
             with self.subTest(text=text[:16]):

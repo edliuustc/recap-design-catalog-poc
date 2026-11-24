@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -457,7 +458,34 @@ class CatalogValidationTests(unittest.TestCase):
         with self.assertRaises(self.validator.ValidationError):
             self.validator.validate_immutable_releases(root, base)
 
-    def test_exact_lf_manifest_migration_is_the_only_release_exception(self):
+    def test_exact_lf_manifest_migration_from_bootstrap_base_is_allowed(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name) / "clone"
+        self._git(
+            root.parent,
+            "clone",
+            "--no-hardlinks",
+            str(ROOT),
+            str(root),
+        )
+        base = "c4213d051263810bbdfa0793d2d8f2192258ed50"
+        self.validator.validate_immutable_releases(root, base)
+
+        manifest_path = root / "catalog/releases/v001/manifest.json"
+        corrected_manifest = manifest_path.read_bytes()
+        manifest_path.write_bytes(corrected_manifest + b" ")
+        self._git(root, "add", "catalog/releases/v001/manifest.json")
+        manifest_path.write_bytes(corrected_manifest)
+        with self.assertRaises(self.validator.ValidationError):
+            self.validator.validate_immutable_releases(root, base)
+
+        self._git(root, "add", "catalog/releases/v001/manifest.json")
+        manifest_path.write_bytes(corrected_manifest + b" ")
+        with self.assertRaises(self.validator.ValidationError):
+            self.validator.validate_immutable_releases(root, base)
+
+    def test_recreated_legacy_content_on_different_history_is_rejected(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
@@ -490,18 +518,58 @@ class CatalogValidationTests(unittest.TestCase):
         manifest_path = release / "manifest.json"
         manifest_path.write_bytes(corrected_manifest)
         self._git(root, "add", "catalog/releases/v001/manifest.json")
-        self.validator.validate_immutable_releases(root, base)
-
-        manifest_path.write_bytes(corrected_manifest + b" ")
-        self._git(root, "add", "catalog/releases/v001/manifest.json")
-        manifest_path.write_bytes(corrected_manifest)
         with self.assertRaises(self.validator.ValidationError):
             self.validator.validate_immutable_releases(root, base)
 
-        self._git(root, "add", "catalog/releases/v001/manifest.json")
-        manifest_path.write_bytes(corrected_manifest + b" ")
-        with self.assertRaises(self.validator.ValidationError):
-            self.validator.validate_immutable_releases(root, base)
+    def test_immutable_git_failures_fail_closed(self):
+        failed = subprocess.CompletedProcess(
+            args=["git"],
+            returncode=2,
+            stdout="",
+            stderr="git failure",
+        )
+        with mock.patch.object(self.validator, "git", return_value=failed):
+            with self.assertRaises(self.validator.ValidationError):
+                self.validator.validate_immutable_releases(ROOT, "main")
+
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        manifest_path = root / "catalog/releases/v001/manifest.json"
+        manifest_path.parent.mkdir(parents=True)
+        manifest_path.write_text("{}\n", encoding="utf-8")
+        git_results = [
+            subprocess.CompletedProcess(["git"], 0, "head parent\n", ""),
+            subprocess.CompletedProcess(["git"], 0, "base\n", ""),
+            subprocess.CompletedProcess(
+                ["git"],
+                0,
+                "catalog/releases/v001/manifest.json\n",
+                "",
+            ),
+            failed,
+        ]
+        with mock.patch.object(self.validator, "git", side_effect=git_results):
+            with mock.patch.object(
+                self.validator,
+                "is_exact_lf_hash_migration",
+                return_value=True,
+            ):
+                with self.assertRaises(self.validator.ValidationError):
+                    self.validator.validate_immutable_releases(root, "main")
+
+    def test_readme_documents_sole_migration_exception_and_production_gate(self):
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        lowered = " ".join(readme.lower().split())
+        self.assertIn(
+            "c4213d051263810bbdfa0793d2d8f2192258ed50",
+            readme,
+        )
+        self.assertIn("sole historical immutability exception", lowered)
+        self.assertIn("sox recap team", lowered)
+        self.assertIn("team codeowners", lowered)
+        self.assertIn("independent code-owner approval", lowered)
+        self.assertIn("must not be enabled", lowered)
 
     def test_examples_match_plugin_contract(self):
         self.validator.validate_examples(

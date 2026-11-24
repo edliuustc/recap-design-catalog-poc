@@ -32,14 +32,21 @@ for each schema, 100 repository files, and 2 MiB for all repository files
 combined. Catalog runtime limits remain stricter: 4 KiB pointer, 32 KiB
 manifest, 64 KiB per design, depth 8, and 512 KiB per release.
 
-Published release files are immutable. Add a new release directory and update
-the pointer rather than editing or deleting an existing release.
+The exact LF-only v001 manifest migration from bootstrap commit
+`c4213d051263810bbdfa0793d2d8f2192258ed50` is the sole historical
+immutability exception. After that migration, release files are immutable. Add
+a new release directory and update the pointer rather than editing or deleting
+an existing release.
 
 ## Temporary governance
 
 The personal-account POC protects `main` with pull requests and the required
 validation workflow. It temporarily requires zero approvals and has no
-CODEOWNERS file until migration to an organization-owned repository.
+CODEOWNERS file.
+
+The production/team gate requires migration to the SOX Recap team organization
+repository and a team CODEOWNERS entry. Independent code-owner approval must be
+required. This catalog source must not be enabled before all conditions hold.
 
 ## Contribution boundary
 

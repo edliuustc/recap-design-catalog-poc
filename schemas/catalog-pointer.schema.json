@@ -1,0 +1,16 @@
+{
+  "title": "Recap catalog pointer",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "current", "previous"],
+  "properties": {
+    "schemaVersion": {"const": "recap-catalog-pointer/1.0"},
+    "current": {"type": "string", "pattern": "^v(?!000)[0-9]{3}$"},
+    "previous": {
+      "oneOf": [
+        {"type": "null"},
+        {"type": "string", "pattern": "^v(?!000)[0-9]{3}$"}
+      ]
+    }
+  }
+}

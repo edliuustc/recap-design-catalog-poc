@@ -339,6 +339,10 @@ class CatalogValidationTests(unittest.TestCase):
                 expected_release="v001",
                 design=design_value(),
             )
+        temporary, root = self.with_tree()
+        self.addCleanup(temporary.cleanup)
+        write_json(root / "examples/status-actions-response.json", [])
+        self.assert_invalid(root, "response")
 
     def test_cli(self):
         completed = subprocess.run(

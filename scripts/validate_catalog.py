@@ -739,6 +739,7 @@ def validate_repository(root, base_ref=None):
         )
         for entry in current_manifest["designs"]
     }
+    require(isinstance(response, dict), "response must be an object")
     require(response.get("design") in current_designs, "example design is not in current release")
     validate_examples(
         request,

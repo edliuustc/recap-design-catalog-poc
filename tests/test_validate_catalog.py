@@ -638,7 +638,10 @@ class CatalogValidationTests(unittest.TestCase):
             "catalog/releases/v001/manifest.json",
             "catalog/releases/v999/designs/a/design.json",
             "examples/a.json",
+            "examples/status_actions.JSON".replace(".JSON", ".json"),
+            "examples/Status Actions.json",
             "schemas/a.schema.json",
+            "schemas/Response.schema.json",
             ".github/CODEOWNERS",
         ):
             self.assertTrue(self.validator.is_allowed_path(path), path)
@@ -814,6 +817,15 @@ class CatalogValidationTests(unittest.TestCase):
         self._git(root, "commit", "-m", "bootstrap")
         self.validator.validate_repository(root, base_ref="HEAD^")
 
+    def test_previous_release_is_audit_metadata_only(self):
+        temporary, root = self.with_tree()
+        self.addCleanup(temporary.cleanup)
+        pointer_path = root / "catalog/current.json"
+        pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
+        pointer["previous"] = "v999"
+        write_json(pointer_path, pointer)
+        self.validator.validate_repository(root)
+
     @staticmethod
     def _git(root, *arguments):
         completed = subprocess.run(
@@ -835,6 +847,10 @@ class WorkflowSafetyTests(unittest.TestCase):
         )
         lowered = workflow.lower()
         self.assertIn("permissions:\n  contents: read", workflow)
+        self.assertRegex(workflow, r"(?m)^on:\s*$")
+        self.assertRegex(workflow, r"(?m)^  pull_request:\s*$")
+        self.assertRegex(workflow, r"(?m)^  push:\s*$")
+        self.assertRegex(workflow, r"(?m)^    branches:\s*\n      - main\s*$")
         self.assertNotIn("pull_request_target", lowered)
         self.assertNotIn("workflow_run", lowered)
         self.assertNotIn("repository_dispatch", lowered)

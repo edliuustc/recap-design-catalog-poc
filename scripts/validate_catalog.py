@@ -157,8 +157,9 @@ def validate_safe_string(value):
 
 
 def load_json(path, max_bytes, max_depth=MAX_DEPTH):
-    raw = Path(path).read_bytes()
-    require(len(raw) <= max_bytes, "JSON byte limit exceeded", "limit")
+    path = Path(path)
+    require(path.stat().st_size <= max_bytes, "JSON byte limit exceeded", "limit")
+    raw = path.read_bytes()
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError:
@@ -489,9 +490,9 @@ def validate_publication_probes(design):
 def is_allowed_path(relative):
     if relative in REQUIRED_PATHS:
         return True
-    if re.fullmatch(r"examples/[a-z][a-z0-9-]*\.json", relative):
+    if re.fullmatch(r"examples/[^/]+\.json", relative):
         return True
-    if re.fullmatch(r"schemas/[a-z][a-z0-9-]*\.schema\.json", relative):
+    if re.fullmatch(r"schemas/[^/]+\.schema\.json", relative):
         return True
     if re.fullmatch(r"catalog/releases/v(?!000)[0-9]{3}/manifest\.json", relative):
         return True
@@ -566,6 +567,19 @@ def scan_text_files(files):
             require(allowed, "forbidden repository URL", "scan")
 
 
+def enforce_json_file_limits(files):
+    for relative, path in files:
+        limit = None
+        if relative == "catalog/current.json":
+            limit = POINTER_LIMIT
+        elif re.fullmatch(r"catalog/releases/v(?!000)[0-9]{3}/manifest\.json", relative):
+            limit = MANIFEST_LIMIT
+        elif relative.endswith(".json"):
+            limit = DESIGN_LIMIT
+        if limit is not None:
+            require(path.stat().st_size <= limit, "JSON byte limit exceeded", "limit")
+
+
 def validate_schema_artifacts(root):
     for name, expected_hash in SCHEMA_HASHES.items():
         path = root / "schemas" / name
@@ -602,13 +616,17 @@ def validate_schema_artifacts(root):
 
 
 def git(root, *arguments, check=True):
-    completed = subprocess.run(
-        ["git", *arguments],
-        cwd=root,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    try:
+        completed = subprocess.run(
+            ["git", *arguments],
+            cwd=root,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=60,
+        )
+    except subprocess.TimeoutExpired:
+        fail("git immutable-release check timed out", "immutable")
     if check and completed.returncode:
         fail("git immutable-release check failed", "immutable")
     return completed
@@ -656,6 +674,7 @@ def validate_immutable_releases(root, base_ref):
 def validate_repository(root, base_ref=None):
     root = Path(root).resolve()
     files = repository_files(root)
+    enforce_json_file_limits(files)
     scan_text_files(files)
     validate_schema_artifacts(root)
     for relative, path in files:
@@ -707,8 +726,6 @@ def validate_repository(root, base_ref=None):
         )
         release_summaries[release_id] = (len(designs), total_bytes)
     require(pointer["current"] in release_summaries, "current release is missing")
-    if pointer["previous"] is not None:
-        require(pointer["previous"] in release_summaries, "previous release is missing")
     request = load_json(root / "examples/status-actions-request.json", DESIGN_LIMIT)
     response = load_json(root / "examples/status-actions-response.json", DESIGN_LIMIT)
     current_manifest = load_json(

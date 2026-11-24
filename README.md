@@ -23,6 +23,10 @@ For a pull-request or branch comparison, supply an existing base ref:
 python scripts/validate_catalog.py --base-ref origin/main
 ```
 
+The Python validator is authoritative. The JSON Schema files describe the
+closed document shapes, while the validator also enforces cross-file identity,
+hash, ordering, immutability, byte, and aggregate constraints.
+
 Published release files are immutable. Add a new release directory and update
 the pointer rather than editing or deleting an existing release.
 

@@ -1,0 +1,67 @@
+{
+  "schemaVersion": "recap-design/1.0",
+  "id": "status-actions",
+  "version": "1.0.0",
+  "status": "approved",
+  "priority": 100,
+  "appliesWhen": {
+    "requiredForms": [
+      "status_table",
+      "tasks"
+    ],
+    "minimumUnits": 2,
+    "maximumUnits": 30
+  },
+  "profiles": {
+    "cowork-native": {
+      "rules": [
+        {
+          "kind": "form",
+          "form": "status_table",
+          "title": {
+            "kind": "block-title"
+          }
+        },
+        {
+          "kind": "form",
+          "form": "tasks",
+          "title": {
+            "kind": "literal",
+            "value": "Recorded actions"
+          }
+        },
+        {
+          "kind": "remaining",
+          "title": {
+            "kind": "block-title"
+          }
+        }
+      ]
+    },
+    "bizchat-rich-text": {
+      "rules": [
+        {
+          "kind": "form",
+          "form": "tasks",
+          "title": {
+            "kind": "literal",
+            "value": "Recorded actions"
+          }
+        },
+        {
+          "kind": "form",
+          "form": "status_table",
+          "title": {
+            "kind": "block-title"
+          }
+        },
+        {
+          "kind": "remaining",
+          "title": {
+            "kind": "block-title"
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "recap-design-request/1.0",
+  "requestNonce": "0123456789abcdef0123456789abcdef",
+  "requestedProfiles": [
+    "cowork-native",
+    "bizchat-rich-text"
+  ],
+  "units": [
+    {
+      "id": "u1",
+      "form": "status_table"
+    },
+    {
+      "id": "u2",
+      "form": "tasks"
+    }
+  ]
+}

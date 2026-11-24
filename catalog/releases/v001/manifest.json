@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "recap-design-release/1.0",
+  "id": "v001",
+  "status": "approved",
+  "designs": [
+    {
+      "id": "status-actions",
+      "path": "designs/status-actions/design.json",
+      "sha256": "9f4081261f7b102308d7eada1b5c199c9b116dc80c3f0acee87b9a2a8ae17db4"
+    }
+  ]
+}

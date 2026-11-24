@@ -73,9 +73,9 @@ TEXT_FORBIDDEN = (
     "ado" + "_",
 )
 REQUIRED_PATHS = {
+    ".gitattributes",
     "README.md",
     "SECURITY.md",
-    ".github/CODEOWNERS",
     ".github/workflows/validate.yml",
     "scripts/validate_catalog.py",
     "tests/test_validate_catalog.py",
@@ -87,10 +87,23 @@ REQUIRED_PATHS = {
     "examples/status-actions-response.json",
 }
 SCHEMA_HASHES = {
-    "catalog-pointer.schema.json": "1836ea2a68154fbb3cfa089575a855a53925362aed17c7cdbccff1257e0ce3bb",
-    "release.schema.json": "c1ed4b99a5c2fbe6b6ae795af63815fbcf4fd948aacfa3a82cd0b7a3f1e7132b",
-    "design.schema.json": "192a902358ff3818b087d0675c66961a418e6fc5a2d730aa21e0fe1ebd3af328",
+    "catalog-pointer.schema.json": "5a0b13bc18d78ef2ff4cb90794a14396c624a6bfc8a6d3208afbd9aa990dda73",
+    "release.schema.json": "95024c935ac254177770d4511046f5a6aa9fe142feda1be42fb8577528647239",
+    "design.schema.json": "2fc6ca0ef3f2fd68323f20d5a7604337cf9e6f07ba66ad12f7e867b30bceaa8f",
 }
+LF_HASH_MIGRATION_MANIFEST_PATH = "catalog/releases/v001/manifest.json"
+LF_HASH_MIGRATION_DESIGN_PATH = (
+    "catalog/releases/v001/designs/status-actions/design.json"
+)
+LF_HASH_MIGRATION_BASE_MANIFEST_SHA256 = (
+    "fb015aa803d47779b691d55cdffe6664d5debeae91c04567b5e8513c3a8bc65d"
+)
+LF_HASH_MIGRATION_FIXED_MANIFEST_SHA256 = (
+    "b7140b0aa561171509162c2dd60727fe0416e0baf5c3591f9fc9c53945508842"
+)
+LF_HASH_MIGRATION_DESIGN_SHA256 = (
+    "78533a7c60f9d2d0d9508f7382989d9904bf4e6a9f9fd2a38bf5b70ab2e8ed48"
+)
 
 
 class ValidationError(Exception):
@@ -729,6 +742,53 @@ def git(root, *arguments, check=True):
     return completed
 
 
+def git_bytes(root, *arguments):
+    try:
+        completed = subprocess.run(
+            ["git", *arguments],
+            cwd=root,
+            capture_output=True,
+            check=False,
+            timeout=60,
+        )
+    except subprocess.TimeoutExpired:
+        fail("git immutable-release check timed out", "immutable")
+    if completed.returncode:
+        fail("git immutable-release check failed", "immutable")
+    return completed.stdout
+
+
+def is_exact_lf_hash_migration(root, base, relative):
+    if relative != LF_HASH_MIGRATION_MANIFEST_PATH:
+        return False
+    base_manifest = git_bytes(root, "show", f"{base}:{relative}")
+    fixed_manifest = git_bytes(root, "show", f":{relative}")
+    if (root / relative).read_bytes() != fixed_manifest:
+        return False
+    if (
+        hashlib.sha256(base_manifest).hexdigest()
+        != LF_HASH_MIGRATION_BASE_MANIFEST_SHA256
+        or hashlib.sha256(fixed_manifest).hexdigest()
+        != LF_HASH_MIGRATION_FIXED_MANIFEST_SHA256
+    ):
+        return False
+    design_path = root / LF_HASH_MIGRATION_DESIGN_PATH
+    staged_design = git_bytes(root, "show", f":{LF_HASH_MIGRATION_DESIGN_PATH}")
+    if (
+        not design_path.is_file()
+        or design_path.read_bytes() != staged_design
+        or hashlib.sha256(staged_design).hexdigest()
+        != LF_HASH_MIGRATION_DESIGN_SHA256
+    ):
+        return False
+    base_design = git_bytes(
+        root,
+        "show",
+        f"{base}:{LF_HASH_MIGRATION_DESIGN_PATH}",
+    )
+    return hashlib.sha256(base_design).hexdigest() == LF_HASH_MIGRATION_DESIGN_SHA256
+
+
 def validate_immutable_releases(root, base_ref):
     root = Path(root)
     parent = git(root, "rev-parse", "--verify", "HEAD^", check=False)
@@ -762,7 +822,8 @@ def validate_immutable_releases(root, base_ref):
             check=False,
         )
         require(
-            comparison.returncode == 0,
+            comparison.returncode == 0
+            or is_exact_lf_hash_migration(root, base, relative),
             "immutable release file changed",
             "immutable",
         )

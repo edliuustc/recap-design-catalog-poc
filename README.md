@@ -35,6 +35,12 @@ manifest, 64 KiB per design, depth 8, and 512 KiB per release.
 Published release files are immutable. Add a new release directory and update
 the pointer rather than editing or deleting an existing release.
 
+## Temporary governance
+
+The personal-account POC protects `main` with pull requests and the required
+validation workflow. It temporarily requires zero approvals and has no
+CODEOWNERS file until migration to an organization-owned repository.
+
 ## Contribution boundary
 
 Submit only newly authored synthetic JSON and repository tooling. Do not submit

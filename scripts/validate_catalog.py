@@ -92,7 +92,8 @@ SCHEMA_HASHES = {
     "design.schema.json": "2fc6ca0ef3f2fd68323f20d5a7604337cf9e6f07ba66ad12f7e867b30bceaa8f",
 }
 LF_HASH_MIGRATION_MANIFEST_PATH = "catalog/releases/v001/manifest.json"
-LF_HASH_MIGRATION_BASE_COMMIT = "c4213d051263810bbdfa0793d2d8f2192258ed50"
+REVIEWED_BOOTSTRAP_COMMIT = "c4213d051263810bbdfa0793d2d8f2192258ed50"
+LF_HASH_MIGRATION_BASE_COMMIT = REVIEWED_BOOTSTRAP_COMMIT
 LF_HASH_MIGRATION_DESIGN_PATH = (
     "catalog/releases/v001/designs/status-actions/design.json"
 )
@@ -812,6 +813,11 @@ def validate_immutable_releases(root, base_ref):
     ancestry_parts = ancestry.stdout.strip().split()
     require(bool(ancestry_parts), "git HEAD is unavailable", "immutable")
     if len(ancestry_parts) == 1:
+        require(
+            ancestry_parts[0] == REVIEWED_BOOTSTRAP_COMMIT,
+            "unrecognized root commit cannot skip immutable comparison",
+            "immutable",
+        )
         return
     require(base_ref and str(base_ref).strip(), "base ref is required", "immutable")
     base_ref = str(base_ref)

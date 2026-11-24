@@ -450,9 +450,9 @@ class CatalogValidationTests(unittest.TestCase):
         base = self._git(root, "rev-parse", "HEAD").strip()
         readme = root / "README.md"
         readme.write_text("Synthetic recap design catalog.\nUpdated.\n", encoding="utf-8")
-        self.validator.validate_repository(root, base_ref=base)
         self._git(root, "add", "README.md")
         self._git(root, "commit", "-m", "docs")
+        self.validator.validate_repository(root, base_ref=base)
         design_path = root / "catalog/releases/v001/designs/status-actions/design.json"
         design_path.write_text(design_path.read_text() + " ", encoding="utf-8")
         with self.assertRaises(self.validator.ValidationError):
@@ -1164,7 +1164,17 @@ class CatalogValidationTests(unittest.TestCase):
                 finally:
                     temporary.cleanup()
 
-    def test_root_bootstrap_skips_only_immutable_comparison(self):
+    def test_exact_bootstrap_commit_may_skip_parent_comparison(self):
+        ancestry = subprocess.CompletedProcess(
+            args=["git"],
+            returncode=0,
+            stdout="c4213d051263810bbdfa0793d2d8f2192258ed50\n",
+            stderr="",
+        )
+        with mock.patch.object(self.validator, "git", return_value=ancestry):
+            self.validator.validate_immutable_releases(ROOT, "HEAD^")
+
+    def test_unrelated_root_commit_fails_closed(self):
         temporary, root = self.with_tree()
         self.addCleanup(temporary.cleanup)
         self._git(root, "init", "-b", "main")
@@ -1172,7 +1182,8 @@ class CatalogValidationTests(unittest.TestCase):
         self._git(root, "config", "user.email", "catalog" + "@example.invalid")
         self._git(root, "add", ".")
         self._git(root, "commit", "-m", "bootstrap")
-        self.validator.validate_repository(root, base_ref="HEAD^")
+        with self.assertRaises(self.validator.ValidationError):
+            self.validator.validate_repository(root, base_ref="HEAD^")
 
     def test_previous_release_is_audit_metadata_only(self):
         temporary, root = self.with_tree()

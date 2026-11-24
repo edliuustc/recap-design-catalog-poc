@@ -2,6 +2,7 @@
 import argparse
 import hashlib
 import json
+import math
 from pathlib import Path, PurePosixPath
 import re
 import subprocess
@@ -39,7 +40,7 @@ GUID_RE = re.compile(
     r"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[1-5][0-9A-Fa-f]{3}-"
     r"[89ABab][0-9A-Fa-f]{3}-[0-9A-Fa-f]{12}"
 )
-URL_RE = re.compile(r'https?://[^\s)>\"]+')
+URL_RE = re.compile(r'\b[A-Za-z][A-Za-z0-9+.-]*://[^\s)>\"]+')
 MARKDOWN_LINK_RE = re.compile(r"\]\(([^)\s]+)")
 ALLOWED_README_URL = (
     "https:" + "//github.com/edliuustc/recap-design-catalog-poc"
@@ -111,6 +112,17 @@ def json_depth(value):
     return 0
 
 
+def validate_json_numbers(value):
+    if isinstance(value, float):
+        require(math.isfinite(value), "non-finite JSON number", "json")
+    elif isinstance(value, dict):
+        for item in value.values():
+            validate_json_numbers(item)
+    elif isinstance(value, list):
+        for item in value:
+            validate_json_numbers(item)
+
+
 def iter_json_strings(value):
     if isinstance(value, str):
         yield value
@@ -154,8 +166,9 @@ def load_json(path, max_bytes, max_depth=MAX_DEPTH):
         )
     except ValidationError:
         raise
-    except (ValueError, json.JSONDecodeError):
+    except (ValueError, json.JSONDecodeError, RecursionError):
         fail("malformed JSON", "json")
+    validate_json_numbers(value)
     require(json_depth(value) <= max_depth, "JSON depth limit exceeded", "limit")
     for string in iter_json_strings(value):
         validate_safe_string(string)
@@ -278,7 +291,8 @@ def validate_design_shape(design):
         "invalid required form count",
     )
     require(
-        len(required_forms) == len(set(required_forms))
+        all(isinstance(form, str) for form in required_forms)
+        and len(required_forms) == len(set(required_forms))
         and all(form in FORMS for form in required_forms),
         "invalid required forms",
     )
@@ -366,9 +380,24 @@ def validate_response(response, request, expected_release):
         require(sorted(found) == sorted(expected_unit_ids), "response units are incomplete")
 
 
-def validate_examples(request, response, expected_release):
+def validate_examples(request, response, expected_release, design):
     validate_request(request)
     validate_response(response, request, expected_release)
+    require(response["design"] == design["id"], "example design identity mismatch")
+    applies = design["appliesWhen"]
+    require(
+        applies["minimumUnits"] <= len(request["units"]) <= applies["maximumUnits"],
+        "example request does not match design range",
+    )
+    request_forms = {unit["form"] for unit in request["units"]}
+    require(
+        all(form in request_forms for form in applies["requiredForms"]),
+        "example request does not match required forms",
+    )
+    require(
+        response["plans"] == generate_plans(design, request["units"]),
+        "example plans do not match generated plans",
+    )
 
 
 def generate_plans(design, units):
@@ -470,6 +499,29 @@ def is_allowed_path(relative):
     )
 
 
+def is_allowed_directory(relative):
+    if relative in {
+        ".github",
+        ".github/workflows",
+        "catalog",
+        "catalog/releases",
+        "examples",
+        "schemas",
+        "scripts",
+        "tests",
+    }:
+        return True
+    return bool(
+        re.fullmatch(r"catalog/releases/v(?!000)[0-9]{3}", relative)
+        or re.fullmatch(r"catalog/releases/v(?!000)[0-9]{3}/designs", relative)
+        or re.fullmatch(
+            r"catalog/releases/v(?!000)[0-9]{3}/designs/"
+            r"[a-z][a-z0-9-]{0,63}",
+            relative,
+        )
+    )
+
+
 def repository_files(root):
     root = Path(root)
     files = []
@@ -478,8 +530,14 @@ def repository_files(root):
             continue
         if path.is_symlink():
             fail("repository contains a symlink", "path")
+        relative = path.relative_to(root).as_posix()
+        if path.is_dir():
+            require(
+                is_allowed_directory(relative),
+                "repository directory is not allowed",
+                "path",
+            )
         if path.is_file():
-            relative = path.relative_to(root).as_posix()
             require(is_allowed_path(relative), "repository path is not allowed", "path")
             files.append((relative, path))
     require(REQUIRED_PATHS.issubset({relative for relative, _ in files}), "required path missing")
@@ -492,14 +550,43 @@ def scan_text_files(files):
             text = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             fail("repository file is not UTF-8 text", "scan")
+        lowered = text.lower()
         for term in TEXT_FORBIDDEN:
-            require(term not in text, "forbidden repository text", "scan")
+            require(term.lower() not in lowered, "forbidden repository text", "scan")
         require(not EMAIL_RE.search(text), "forbidden email-like repository text", "scan")
         require(not GUID_RE.search(text), "forbidden GUID-like repository text", "scan")
         urls = URL_RE.findall(text) + MARKDOWN_LINK_RE.findall(text)
         for url in urls:
             allowed = relative == "README.md" and url == ALLOWED_README_URL
             require(allowed, "forbidden repository URL", "scan")
+
+
+def validate_schema_artifacts(root):
+    pointer = load_json(root / "schemas/catalog-pointer.schema.json", DESIGN_LIMIT)
+    release = load_json(root / "schemas/release.schema.json", DESIGN_LIMIT)
+    design = load_json(root / "schemas/design.schema.json", DESIGN_LIMIT)
+    for schema in (pointer, release, design):
+        require(
+            isinstance(schema, dict)
+            and schema.get("type") == "object"
+            and schema.get("additionalProperties") is False
+            and isinstance(schema.get("required"), list)
+            and isinstance(schema.get("properties"), dict),
+            "schema artifact is incomplete",
+            "schema",
+        )
+    require(
+        isinstance(release["properties"]["designs"]["items"]["properties"]["path"].get("pattern"), str),
+        "schema artifact release path is incomplete",
+        "schema",
+    )
+    require(
+        isinstance(design.get("$defs"), dict)
+        and design["properties"]["appliesWhen"].get("additionalProperties") is False
+        and design["properties"]["profiles"].get("additionalProperties") is False,
+        "schema artifact design grammar is incomplete",
+        "schema",
+    )
 
 
 def git(root, *arguments, check=True):
@@ -521,7 +608,12 @@ def validate_immutable_releases(root, base_ref):
     if parent.returncode != 0:
         return
     require(base_ref and str(base_ref).strip(), "base ref is required", "immutable")
-    base = git(root, "merge-base", "HEAD", str(base_ref)).stdout.strip()
+    base_ref = str(base_ref)
+    if base_ref.startswith("origin/"):
+        branch = base_ref[len("origin/") :]
+        require(bool(branch) and not branch.startswith("-"), "invalid origin base ref", "immutable")
+        git(root, "fetch", "--no-tags", "origin", branch)
+    base = git(root, "merge-base", "HEAD", base_ref).stdout.strip()
     require(bool(base), "merge base is unavailable", "immutable")
     listing = git(root, "ls-tree", "-r", "--name-only", base, "--", "catalog/releases").stdout
     base_paths = [line for line in listing.splitlines() if line]
@@ -553,6 +645,7 @@ def validate_repository(root, base_ref=None):
     root = Path(root).resolve()
     files = repository_files(root)
     scan_text_files(files)
+    validate_schema_artifacts(root)
     for relative, path in files:
         if relative.endswith(".json"):
             load_json(path, DESIGN_LIMIT)
@@ -571,6 +664,16 @@ def validate_repository(root, base_ref=None):
         require(manifest["id"] == release_id, "release identity mismatch")
         total_bytes = manifest_path.stat().st_size
         designs = []
+        expected_design_paths = {entry["path"] for entry in manifest["designs"]}
+        actual_design_paths = {
+            path.relative_to(release_directory).as_posix()
+            for path in (release_directory / "designs").rglob("design.json")
+            if path.is_file() and not path.is_symlink()
+        }
+        require(
+            actual_design_paths == expected_design_paths,
+            "orphan or missing design file",
+        )
         for entry in manifest["designs"]:
             design_path = release_directory / entry["path"]
             require(
@@ -596,7 +699,24 @@ def validate_repository(root, base_ref=None):
         require(pointer["previous"] in release_summaries, "previous release is missing")
     request = load_json(root / "examples/status-actions-request.json", DESIGN_LIMIT)
     response = load_json(root / "examples/status-actions-response.json", DESIGN_LIMIT)
-    validate_examples(request, response, expected_release=pointer["current"])
+    current_manifest = load_json(
+        root / "catalog/releases" / pointer["current"] / "manifest.json",
+        MANIFEST_LIMIT,
+    )
+    current_designs = {
+        entry["id"]: load_json(
+            root / "catalog/releases" / pointer["current"] / entry["path"],
+            DESIGN_LIMIT,
+        )
+        for entry in current_manifest["designs"]
+    }
+    require(response.get("design") in current_designs, "example design is not in current release")
+    validate_examples(
+        request,
+        response,
+        expected_release=pointer["current"],
+        design=current_designs[response["design"]],
+    )
     if base_ref is not None:
         validate_immutable_releases(root, base_ref)
     design_count, total_bytes = release_summaries[pointer["current"]]
@@ -615,7 +735,7 @@ def main(argv=None):
     arguments = parser.parse_args(argv)
     try:
         summary = validate_repository(Path(__file__).resolve().parents[1], arguments.base_ref)
-    except (ValidationError, OSError):
+    except (ValidationError, OSError, TypeError, ValueError, RecursionError):
         print(
             json.dumps(
                 {"status": "error", "error": "validation-failed"},

@@ -169,10 +169,9 @@ def create_valid_tree(root):
         "release.schema.json",
         "design.schema.json",
     ):
-        write_json(
-            root / "schemas" / name,
-            {"type": "object", "additionalProperties": False},
-        )
+        destination = root / "schemas" / name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / "schemas" / name, destination)
     (root / "scripts").mkdir(parents=True, exist_ok=True)
     (root / "tests").mkdir(parents=True, exist_ok=True)
     (root / ".github" / "workflows").mkdir(parents=True, exist_ok=True)
@@ -255,9 +254,12 @@ class CatalogValidationTests(unittest.TestCase):
     def test_private_data_scan(self):
         cases = [
             "https:" + "//private.invalid",
+            "HTTPS:" + "//private.invalid",
+            "ssh:" + "//private.invalid/repo",
             "person" + "@example.test",
             "12345678" + "-1234-4234-9234-123456789abc",
             "gim" + "-home",
+            "GIM" + "-HOME",
             "SOX" + "-Design-Workspace",
             "dev." + "azure.com",
             "BEGIN " + "PRIVATE KEY",
@@ -271,6 +273,16 @@ class CatalogValidationTests(unittest.TestCase):
                     self.assert_invalid(root, "forbidden")
                 finally:
                     temporary.cleanup()
+
+    def test_forbidden_empty_directory_and_orphan_design(self):
+        temporary, root = self.with_tree()
+        self.addCleanup(temporary.cleanup)
+        (root / "unapproved").mkdir()
+        self.assert_invalid(root, "directory")
+        (root / "unapproved").rmdir()
+        orphan = root / "catalog/releases/v001/designs/orphan/design.json"
+        write_json(orphan, design_value("orphan"))
+        self.assert_invalid(root, "orphan")
 
     def test_release_immutability(self):
         temporary, root = self.with_tree()
@@ -293,13 +305,39 @@ class CatalogValidationTests(unittest.TestCase):
 
     def test_examples_match_plugin_contract(self):
         self.validator.validate_examples(
-            request_value(), response_value(), expected_release="v001"
+            request_value(),
+            response_value(),
+            expected_release="v001",
+            design=design_value(),
         )
         broken = response_value()
         broken["plans"]["cowork-native"]["sections"][0]["id"] = "s2"
         with self.assertRaises(self.validator.ValidationError):
             self.validator.validate_examples(
-                request_value(), broken, expected_release="v001"
+                request_value(),
+                broken,
+                expected_release="v001",
+                design=design_value(),
+            )
+        wrong_design = response_value()
+        wrong_design["design"] = "other"
+        with self.assertRaises(self.validator.ValidationError):
+            self.validator.validate_examples(
+                request_value(),
+                wrong_design,
+                expected_release="v001",
+                design=design_value(),
+            )
+        wrong_plan = response_value()
+        wrong_plan["plans"]["cowork-native"]["sections"].reverse()
+        wrong_plan["plans"]["cowork-native"]["sections"][0]["id"] = "s1"
+        wrong_plan["plans"]["cowork-native"]["sections"][1]["id"] = "s2"
+        with self.assertRaises(self.validator.ValidationError):
+            self.validator.validate_examples(
+                request_value(),
+                wrong_plan,
+                expected_release="v001",
+                design=design_value(),
             )
 
     def test_cli(self):
@@ -331,6 +369,40 @@ class CatalogValidationTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.assert_invalid(root, "non-finite")
+        pointer.write_text('{"value":1e999}', encoding="utf-8")
+        with self.assertRaises(self.validator.ValidationError):
+            self.validator.load_json(pointer, 4096)
+
+    def test_malformed_required_forms_is_controlled_validation_error(self):
+        design = design_value()
+        design["appliesWhen"]["requiredForms"] = [["tasks"]]
+        with self.assertRaises(self.validator.ValidationError):
+            self.validator.validate_design_shape(design)
+
+    def test_schema_artifacts_are_closed_and_complete(self):
+        design_schema = json.loads(
+            (ROOT / "schemas/design.schema.json").read_text(encoding="utf-8")
+        )
+        release_schema = json.loads(
+            (ROOT / "schemas/release.schema.json").read_text(encoding="utf-8")
+        )
+        applies = design_schema["properties"]["appliesWhen"]
+        self.assertFalse(applies["additionalProperties"])
+        self.assertEqual(
+            ["requiredForms", "minimumUnits", "maximumUnits"],
+            applies["required"],
+        )
+        profiles = design_schema["properties"]["profiles"]
+        self.assertFalse(profiles["additionalProperties"])
+        self.assertIn("$defs", design_schema)
+        self.assertIn(
+            "pattern",
+            release_schema["properties"]["designs"]["items"]["properties"]["path"],
+        )
+        temporary, root = self.with_tree()
+        self.addCleanup(temporary.cleanup)
+        write_json(root / "schemas/design.schema.json", {})
+        self.assert_invalid(root, "schema artifact")
 
     def test_identifier_and_path_boundaries(self):
         valid_release_ids = ("v001", "v999")
@@ -376,14 +448,15 @@ class CatalogValidationTests(unittest.TestCase):
         write_json(path, value)
         with self.assertRaises(self.validator.ValidationError):
             self.validator.load_json(path, 4096)
-        exact = root / "exact.bin"
-        exact.write_bytes(b" " * 4096)
-        with self.assertRaises(self.validator.ValidationError):
-            self.validator.load_json(exact, 4096)
-        oversized = root / "oversized.json"
-        oversized.write_bytes(b" " * 4097)
-        with self.assertRaises(self.validator.ValidationError):
-            self.validator.load_json(oversized, 4096)
+        for limit in (4 * 1024, 32 * 1024, 64 * 1024):
+            exact = root / f"exact-{limit}.json"
+            payload = '{"a":"' + ("x" * (limit - 8)) + '"}'
+            exact.write_text(payload, encoding="utf-8")
+            self.assertEqual(limit, exact.stat().st_size)
+            self.validator.load_json(exact, limit)
+            exact.write_text(payload + " ", encoding="utf-8")
+            with self.assertRaises(self.validator.ValidationError):
+                self.validator.load_json(exact, limit)
 
     def test_content_specific_and_release_byte_limits(self):
         temporary, root = self.with_tree()
@@ -413,6 +486,7 @@ class CatalogValidationTests(unittest.TestCase):
         temporary4, root4 = self.with_tree()
         self.addCleanup(temporary4.cleanup)
         release_root = root4 / "catalog/releases/v001"
+        shutil.rmtree(release_root / "designs")
         entries = []
         for index in range(9):
             design_id = f"d{index}"
@@ -491,6 +565,61 @@ class CatalogValidationTests(unittest.TestCase):
                     sorted(section["unitId"] for section in sections),
                 )
 
+    def test_pointer_and_design_boundary_table(self):
+        pointer = {
+            "schemaVersion": "recap-catalog-pointer/1.0",
+            "current": "v001",
+            "previous": "v002",
+        }
+        self.validator.validate_pointer_shape(pointer)
+        pointer["previous"] = "v001"
+        with self.assertRaises(self.validator.ValidationError):
+            self.validator.validate_pointer_shape(pointer)
+
+        valid = design_value()
+        for priority in (0, 1000):
+            candidate = json.loads(json.dumps(valid))
+            candidate["priority"] = priority
+            self.validator.validate_design_shape(candidate)
+        for priority in (-1, 1001, True):
+            candidate = json.loads(json.dumps(valid))
+            candidate["priority"] = priority
+            with self.assertRaises(self.validator.ValidationError):
+                self.validator.validate_design_shape(candidate)
+        for version in ("1.0.0", "999.0.1"):
+            candidate = json.loads(json.dumps(valid))
+            candidate["version"] = version
+            self.validator.validate_design_shape(candidate)
+        for version in ("0.1.0", "1.0", "v1.0.0"):
+            candidate = json.loads(json.dumps(valid))
+            candidate["version"] = version
+            with self.assertRaises(self.validator.ValidationError):
+                self.validator.validate_design_shape(candidate)
+
+        for title in ("A", "A" + "z" * 79):
+            self.validator.validate_title({"kind": "literal", "value": title})
+        for title in (
+            "",
+            "A" + "z" * 80,
+            "http:" + "unsafe",
+            "line\nbreak",
+            "bidi\u202etext",
+        ):
+            with self.assertRaises(self.validator.ValidationError):
+                self.validator.validate_title({"kind": "literal", "value": title})
+
+        for minimum, maximum in ((2, 2), (2, 30)):
+            candidate = json.loads(json.dumps(valid))
+            candidate["appliesWhen"]["minimumUnits"] = minimum
+            candidate["appliesWhen"]["maximumUnits"] = maximum
+            self.validator.validate_design_shape(candidate)
+        for minimum, maximum in ((1, 30), (2, 31), (3, 2)):
+            candidate = json.loads(json.dumps(valid))
+            candidate["appliesWhen"]["minimumUnits"] = minimum
+            candidate["appliesWhen"]["maximumUnits"] = maximum
+            with self.assertRaises(self.validator.ValidationError):
+                self.validator.validate_design_shape(candidate)
+
     def test_bootstrap_and_release_change_matrix(self):
         scenarios = ("changed", "deleted", "renamed", "added")
         for scenario in scenarios:
@@ -508,6 +637,9 @@ class CatalogValidationTests(unittest.TestCase):
                     self._git(root, "add", ".")
                     self._git(root, "commit", "-m", "base")
                     base = self._git(root, "rev-parse", "HEAD").strip()
+                    origin = root / ".git" / "origin-test"
+                    self._git(root, "clone", "--bare", ".", str(origin))
+                    self._git(root, "remote", "add", "origin", str(origin))
                     release = root / "catalog/releases/v001"
                     if scenario == "changed":
                         path = release / "designs/status-actions/design.json"
@@ -523,11 +655,24 @@ class CatalogValidationTests(unittest.TestCase):
                     self._git(root, "commit", "-m", scenario)
                     if scenario == "added":
                         self.validator.validate_immutable_releases(root, base)
+                        self.validator.validate_immutable_releases(root, "HEAD^")
+                        self.validator.validate_immutable_releases(root, "origin/main")
                     else:
-                        with self.assertRaises(self.validator.ValidationError):
-                            self.validator.validate_immutable_releases(root, base)
+                        for base_ref in (base, "HEAD^", "origin/main"):
+                            with self.assertRaises(self.validator.ValidationError):
+                                self.validator.validate_immutable_releases(root, base_ref)
                 finally:
                     temporary.cleanup()
+
+    def test_root_bootstrap_skips_only_immutable_comparison(self):
+        temporary, root = self.with_tree()
+        self.addCleanup(temporary.cleanup)
+        self._git(root, "init", "-b", "main")
+        self._git(root, "config", "user.name", "Catalog Test")
+        self._git(root, "config", "user.email", "catalog" + "@example.invalid")
+        self._git(root, "add", ".")
+        self._git(root, "commit", "-m", "bootstrap")
+        self.validator.validate_repository(root, base_ref="HEAD^")
 
     @staticmethod
     def _git(root, *arguments):

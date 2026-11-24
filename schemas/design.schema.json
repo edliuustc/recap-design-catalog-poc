@@ -20,12 +20,104 @@
     "appliesWhen": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["requiredForms", "minimumUnits", "maximumUnits"]
+      "required": ["requiredForms", "minimumUnits", "maximumUnits"],
+      "properties": {
+        "requiredForms": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 13,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/form"}
+        },
+        "minimumUnits": {"type": "integer", "minimum": 1, "maximum": 30},
+        "maximumUnits": {"type": "integer", "minimum": 1, "maximum": 30}
+      }
     },
     "profiles": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["cowork-native", "bizchat-rich-text"]
+      "required": ["cowork-native", "bizchat-rich-text"],
+      "properties": {
+        "cowork-native": {"$ref": "#/$defs/profile"},
+        "bizchat-rich-text": {"$ref": "#/$defs/profile"}
+      }
+    }
+  },
+  "$defs": {
+    "form": {
+      "enum": [
+        "decision",
+        "comparison",
+        "ideation",
+        "sequence",
+        "tasks",
+        "status_table",
+        "set",
+        "findings",
+        "metrics",
+        "route",
+        "qa",
+        "open_questions",
+        "points"
+      ]
+    },
+    "title": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {"kind": {"const": "block-title"}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": {"const": "literal"},
+            "value": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9 .,:;()&/+_-]{0,79}$"
+            }
+          }
+        }
+      ]
+    },
+    "rule": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "form", "title"],
+          "properties": {
+            "kind": {"const": "form"},
+            "form": {"$ref": "#/$defs/form"},
+            "title": {"$ref": "#/$defs/title"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "title"],
+          "properties": {
+            "kind": {"const": "remaining"},
+            "title": {"$ref": "#/$defs/title"}
+          }
+        }
+      ]
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rules"],
+      "properties": {
+        "rules": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 14,
+          "items": {"$ref": "#/$defs/rule"}
+        }
+      }
     }
   }
 }

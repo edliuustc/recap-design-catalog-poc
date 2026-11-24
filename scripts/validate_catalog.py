@@ -3,6 +3,7 @@ import argparse
 import hashlib
 import json
 import math
+import os
 from pathlib import Path, PurePosixPath
 import re
 import subprocess
@@ -14,6 +15,12 @@ MANIFEST_LIMIT = 32 * 1024
 DESIGN_LIMIT = 64 * 1024
 RELEASE_LIMIT = 512 * 1024
 MAX_DEPTH = 8
+EXAMPLE_LIMIT = 128 * 1024
+EXAMPLE_MAX_DEPTH = 16
+SCHEMA_LIMIT = 256 * 1024
+SCHEMA_MAX_DEPTH = 32
+REPOSITORY_FILE_LIMIT = 100
+REPOSITORY_BYTE_LIMIT = 2 * 1024 * 1024
 PROFILES = ("cowork-native", "bizchat-rich-text")
 FORMS = (
     "decision",
@@ -41,7 +48,17 @@ GUID_RE = re.compile(
     r"[89ABab][0-9A-Fa-f]{3}-[0-9A-Fa-f]{12}"
 )
 URL_RE = re.compile(r'\b[A-Za-z][A-Za-z0-9+.-]*://[^\s)>\"]+')
-MARKDOWN_LINK_RE = re.compile(r"\]\(([^)\s]+)")
+MARKDOWN_INLINE_DESTINATION_RE = re.compile(
+    r"\]\(\s*(?:<([^>\r\n]*)>|([^\s)>\r\n]*))"
+)
+MARKDOWN_REFERENCE_DESTINATION_RE = re.compile(
+    r"(?m)^[ \t]{0,3}\[(?:\\.|[^\]\\\r\n])+\]:[ \t]*"
+    r"(?:\r?\n[ \t]{1,3})?"
+    r"(?:<([^>\r\n]*)>|([^\s\r\n]*))"
+)
+PEM_PRIVATE_KEY_RE = re.compile(
+    r"-----BEGIN (?:(?:[A-Z0-9]+ )*)PRIVATE KEY-----"
+)
 ALLOWED_README_URL = (
     "https:" + "//github.com/edliuustc/recap-design-catalog-poc"
 )
@@ -109,37 +126,6 @@ def reject_nonfinite(value):
     fail("non-finite JSON number", "json")
 
 
-def json_depth(value):
-    if isinstance(value, dict):
-        return 1 if not value else 1 + max(json_depth(item) for item in value.values())
-    if isinstance(value, list):
-        return 1 if not value else 1 + max(json_depth(item) for item in value)
-    return 0
-
-
-def validate_json_numbers(value):
-    if isinstance(value, float):
-        require(math.isfinite(value), "non-finite JSON number", "json")
-    elif isinstance(value, dict):
-        for item in value.values():
-            validate_json_numbers(item)
-    elif isinstance(value, list):
-        for item in value:
-            validate_json_numbers(item)
-
-
-def iter_json_strings(value):
-    if isinstance(value, str):
-        yield value
-    elif isinstance(value, dict):
-        for key, item in value.items():
-            yield key
-            yield from iter_json_strings(item)
-    elif isinstance(value, list):
-        for item in value:
-            yield from iter_json_strings(item)
-
-
 def validate_safe_string(value):
     require(isinstance(value, str), "value must be a string")
     for char in value:
@@ -154,6 +140,33 @@ def validate_safe_string(value):
             "string contains a bidi character",
             "scan",
         )
+
+
+def validate_json_tree(value, max_depth):
+    root_depth = 1 if isinstance(value, (dict, list)) else 0
+    stack = [(value, root_depth)]
+    while stack:
+        item, depth = stack.pop()
+        if isinstance(item, dict):
+            require(depth <= max_depth, "JSON depth limit exceeded", "limit")
+            for key, child in item.items():
+                validate_safe_string(key)
+                child_depth = depth + 1 if isinstance(child, (dict, list)) else depth
+                stack.append((child, child_depth))
+        elif isinstance(item, list):
+            require(depth <= max_depth, "JSON depth limit exceeded", "limit")
+            for child in item:
+                child_depth = depth + 1 if isinstance(child, (dict, list)) else depth
+                stack.append((child, child_depth))
+        elif isinstance(item, str):
+            validate_safe_string(item)
+            require("://" not in item, "forbidden URL-like JSON string", "scan")
+            if "@" in item:
+                require(not EMAIL_RE.search(item), "forbidden email-like JSON string", "scan")
+            if "-" in item:
+                require(not GUID_RE.search(item), "forbidden GUID-like JSON string", "scan")
+        elif isinstance(item, float):
+            require(math.isfinite(item), "non-finite JSON number", "json")
 
 
 def load_json(path, max_bytes, max_depth=MAX_DEPTH):
@@ -174,13 +187,7 @@ def load_json(path, max_bytes, max_depth=MAX_DEPTH):
         raise
     except (ValueError, json.JSONDecodeError, RecursionError):
         fail("malformed JSON", "json")
-    validate_json_numbers(value)
-    require(json_depth(value) <= max_depth, "JSON depth limit exceeded", "limit")
-    for string in iter_json_strings(value):
-        validate_safe_string(string)
-        require("://" not in string, "forbidden URL-like JSON string", "scan")
-        require(not EMAIL_RE.search(string), "forbidden email-like JSON string", "scan")
-        require(not GUID_RE.search(string), "forbidden GUID-like JSON string", "scan")
+    validate_json_tree(value, max_depth)
     return value
 
 
@@ -375,6 +382,7 @@ def validate_response(response, request, expected_release):
         plan = response["plans"][profile_name]
         exact_keys(plan, ("sections",), "response plan")
         sections = plan["sections"]
+        require(isinstance(sections, list), "response sections must be an array")
         require(len(sections) == len(expected_unit_ids), "response section count mismatch")
         found = []
         for index, section in enumerate(sections, 1):
@@ -531,21 +539,45 @@ def is_allowed_directory(relative):
 def repository_files(root):
     root = Path(root)
     files = []
-    for path in root.rglob("*"):
-        if ".git" in path.relative_to(root).parts:
-            continue
-        if path.is_symlink():
-            fail("repository contains a symlink", "path")
-        relative = path.relative_to(root).as_posix()
-        if path.is_dir():
+    total_bytes = 0
+    for current, directory_names, file_names in os.walk(
+        root,
+        topdown=True,
+        followlinks=False,
+    ):
+        current_path = Path(current)
+        directory_names[:] = sorted(
+            name for name in directory_names if name != ".git"
+        )
+        file_names.sort()
+        for name in directory_names:
+            path = current_path / name
+            if path.is_symlink():
+                fail("repository contains a symlink", "path")
+            relative = path.relative_to(root).as_posix()
             require(
                 is_allowed_directory(relative),
                 "repository directory is not allowed",
                 "path",
             )
-        if path.is_file():
+        for name in file_names:
+            path = current_path / name
+            if path.is_symlink():
+                fail("repository contains a symlink", "path")
+            relative = path.relative_to(root).as_posix()
             require(is_allowed_path(relative), "repository path is not allowed", "path")
             files.append((relative, path))
+            require(
+                len(files) <= REPOSITORY_FILE_LIMIT,
+                "repository file-count limit exceeded",
+                "limit",
+            )
+            total_bytes += path.stat().st_size
+            require(
+                total_bytes <= REPOSITORY_BYTE_LIMIT,
+                "repository byte limit exceeded",
+                "limit",
+            )
     require(REQUIRED_PATHS.issubset({relative for relative, _ in files}), "required path missing")
     return files
 
@@ -559,24 +591,77 @@ def scan_text_files(files):
         lowered = text.lower()
         for term in TEXT_FORBIDDEN:
             require(term.lower() not in lowered, "forbidden repository text", "scan")
-        require(not EMAIL_RE.search(text), "forbidden email-like repository text", "scan")
-        require(not GUID_RE.search(text), "forbidden GUID-like repository text", "scan")
-        urls = URL_RE.findall(text) + MARKDOWN_LINK_RE.findall(text)
+        require(
+            not PEM_PRIVATE_KEY_RE.search(text),
+            "forbidden private-key header",
+            "scan",
+        )
+        if "@" in text:
+            require(not EMAIL_RE.search(text), "forbidden email-like repository text", "scan")
+        if "-" in text:
+            require(not GUID_RE.search(text), "forbidden GUID-like repository text", "scan")
+        urls = URL_RE.findall(text) if "://" in text else []
         for url in urls:
             allowed = relative == "README.md" and url == ALLOWED_README_URL
             require(allowed, "forbidden repository URL", "scan")
+        destinations = []
+        for pattern in (
+            MARKDOWN_INLINE_DESTINATION_RE,
+            MARKDOWN_REFERENCE_DESTINATION_RE,
+        ):
+            for match in pattern.finditer(text):
+                destination = (
+                    match.group(1)
+                    if match.group(1) is not None
+                    else match.group(2)
+                )
+                destinations.append((destination, match.group(1) is not None))
+        for destination, angle_wrapped in destinations:
+            allowed = (
+                relative == "README.md"
+                and not angle_wrapped
+                and destination == ALLOWED_README_URL
+            )
+            require(allowed, "forbidden Markdown destination", "scan")
+
+
+def enforce_repository_limits(files):
+    require(
+        len(files) <= REPOSITORY_FILE_LIMIT,
+        "repository file-count limit exceeded",
+        "limit",
+    )
+    total_bytes = sum(path.stat().st_size for _, path in files)
+    require(
+        total_bytes <= REPOSITORY_BYTE_LIMIT,
+        "repository byte limit exceeded",
+        "limit",
+    )
+
+
+def json_file_policy(relative):
+    if relative == "catalog/current.json":
+        return POINTER_LIMIT, MAX_DEPTH
+    if re.fullmatch(r"catalog/releases/v(?!000)[0-9]{3}/manifest\.json", relative):
+        return MANIFEST_LIMIT, MAX_DEPTH
+    if re.fullmatch(
+        r"catalog/releases/v(?!000)[0-9]{3}/designs/"
+        r"[a-z][a-z0-9-]{0,63}/design\.json",
+        relative,
+    ):
+        return DESIGN_LIMIT, MAX_DEPTH
+    if relative.startswith("examples/"):
+        return EXAMPLE_LIMIT, EXAMPLE_MAX_DEPTH
+    if relative.startswith("schemas/"):
+        return SCHEMA_LIMIT, SCHEMA_MAX_DEPTH
+    return None
 
 
 def enforce_json_file_limits(files):
     for relative, path in files:
-        limit = None
-        if relative == "catalog/current.json":
-            limit = POINTER_LIMIT
-        elif re.fullmatch(r"catalog/releases/v(?!000)[0-9]{3}/manifest\.json", relative):
-            limit = MANIFEST_LIMIT
-        elif relative.endswith(".json"):
-            limit = DESIGN_LIMIT
-        if limit is not None:
+        policy = json_file_policy(relative)
+        if policy is not None:
+            limit, _ = policy
             require(path.stat().st_size <= limit, "JSON byte limit exceeded", "limit")
 
 
@@ -588,9 +673,21 @@ def validate_schema_artifacts(root):
             "schema artifact differs from the approved grammar",
             "schema",
         )
-    pointer = load_json(root / "schemas/catalog-pointer.schema.json", DESIGN_LIMIT)
-    release = load_json(root / "schemas/release.schema.json", DESIGN_LIMIT)
-    design = load_json(root / "schemas/design.schema.json", DESIGN_LIMIT)
+    pointer = load_json(
+        root / "schemas/catalog-pointer.schema.json",
+        SCHEMA_LIMIT,
+        SCHEMA_MAX_DEPTH,
+    )
+    release = load_json(
+        root / "schemas/release.schema.json",
+        SCHEMA_LIMIT,
+        SCHEMA_MAX_DEPTH,
+    )
+    design = load_json(
+        root / "schemas/design.schema.json",
+        SCHEMA_LIMIT,
+        SCHEMA_MAX_DEPTH,
+    )
     for schema in (pointer, release, design):
         require(
             isinstance(schema, dict)
@@ -671,15 +768,17 @@ def validate_immutable_releases(root, base_ref):
         )
 
 
-def validate_repository(root, base_ref=None):
+def _validate_repository(root, base_ref=None):
     root = Path(root).resolve()
     files = repository_files(root)
+    enforce_repository_limits(files)
     enforce_json_file_limits(files)
     scan_text_files(files)
     validate_schema_artifacts(root)
     for relative, path in files:
-        if relative.endswith(".json"):
-            load_json(path, DESIGN_LIMIT)
+        policy = json_file_policy(relative)
+        if policy is not None:
+            load_json(path, *policy)
     pointer = load_json(root / "catalog/current.json", POINTER_LIMIT)
     validate_pointer_shape(pointer)
     release_summaries = {}
@@ -726,8 +825,16 @@ def validate_repository(root, base_ref=None):
         )
         release_summaries[release_id] = (len(designs), total_bytes)
     require(pointer["current"] in release_summaries, "current release is missing")
-    request = load_json(root / "examples/status-actions-request.json", DESIGN_LIMIT)
-    response = load_json(root / "examples/status-actions-response.json", DESIGN_LIMIT)
+    request = load_json(
+        root / "examples/status-actions-request.json",
+        EXAMPLE_LIMIT,
+        EXAMPLE_MAX_DEPTH,
+    )
+    response = load_json(
+        root / "examples/status-actions-response.json",
+        EXAMPLE_LIMIT,
+        EXAMPLE_MAX_DEPTH,
+    )
     current_manifest = load_json(
         root / "catalog/releases" / pointer["current"] / "manifest.json",
         MANIFEST_LIMIT,
@@ -757,6 +864,15 @@ def validate_repository(root, base_ref=None):
         "releaseBytes": total_bytes,
         "files": len(files),
     }
+
+
+def validate_repository(root, base_ref=None):
+    try:
+        return _validate_repository(root, base_ref)
+    except ValidationError:
+        raise
+    except (AttributeError, KeyError, TypeError, ValueError, RecursionError):
+        fail("malformed repository data", "validation")
 
 
 def main(argv=None):

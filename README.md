@@ -13,7 +13,7 @@ The canonical project location is
 Use Python 3 with no third-party packages:
 
 ```text
-python -B -m unittest discover -s tests
+python -B -m unittest discover -s tests -p "test_*.py"
 python scripts/validate_catalog.py
 ```
 
@@ -26,6 +26,11 @@ python scripts/validate_catalog.py --base-ref origin/main
 The Python validator is authoritative. The JSON Schema files describe the
 closed document shapes, while the validator also enforces cross-file identity,
 hash, ordering, immutability, byte, and aggregate constraints.
+
+Tooling limits are 128 KiB and depth 16 for each example, 256 KiB and depth 32
+for each schema, 100 repository files, and 2 MiB for all repository files
+combined. Catalog runtime limits remain stricter: 4 KiB pointer, 32 KiB
+manifest, 64 KiB per design, depth 8, and 512 KiB per release.
 
 Published release files are immutable. Add a new release directory and update
 the pointer rather than editing or deleting an existing release.

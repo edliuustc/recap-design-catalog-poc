@@ -263,6 +263,9 @@ class CatalogValidationTests(unittest.TestCase):
             "SOX" + "-Design-Workspace",
             "dev." + "azure.com",
             "BEGIN " + "PRIVATE KEY",
+            "-----BEGIN " + "RSA PRIVATE KEY-----",
+            "-----BEGIN " + "EC PRIVATE KEY-----",
+            "-----BEGIN " + "OPENSSH PRIVATE KEY-----",
             "ghp" + "_abcdefghijklmnopqrstuvwxyz",
         ]
         for value in cases:
@@ -273,6 +276,57 @@ class CatalogValidationTests(unittest.TestCase):
                     self.assert_invalid(root, "forbidden")
                 finally:
                     temporary.cleanup()
+
+    def test_markdown_destination_bypasses_are_rejected(self):
+        inline = "]" + "("
+        definition = "]" + ":"
+        forbidden_destinations = [
+            "[label" + inline + "   <https:" + "//private.invalid/path>   )",
+            "[label" + inline + "\tssh:" + "//private.invalid/repo)",
+            "[label" + inline + " ./relative/path )",
+            "[label][target]\n\n[target"
+            + definition
+            + "   <https:"
+            + "//private.invalid/ref>",
+            "[label][target]\n[target" + definition + "\t./relative/ref",
+            "[label][target]\n[target"
+            + definition
+            + "\n  ./relative/next-line",
+            "[label" + inline + ")",
+            "[label" + inline + "<>)",
+            "[label][target]\n[target" + definition + " <>",
+            "[foo\\]" + definition + " ./private/escaped-label",
+        ]
+        for text in forbidden_destinations:
+            with self.subTest(text=text[:16]):
+                temporary, root = self.with_tree()
+                try:
+                    (root / "SECURITY.md").write_text(text + "\n", encoding="utf-8")
+                    self.assert_invalid(root, "forbidden")
+                finally:
+                    temporary.cleanup()
+
+        temporary, root = self.with_tree()
+        self.addCleanup(temporary.cleanup)
+        allowed = "https:" + "//github.com/edliuustc/recap-design-catalog-poc"
+        for angle_destination in (
+            "[catalog" + inline + f"<{allowed}>)",
+            "[catalog" + inline + f"< {allowed} >)",
+        ):
+            temporary_angle, root_angle = self.with_tree()
+            try:
+                (root_angle / "README.md").write_text(
+                    angle_destination + "\n",
+                    encoding="utf-8",
+                )
+                self.assert_invalid(root_angle, "destination")
+            finally:
+                temporary_angle.cleanup()
+        (root / "README.md").write_text(
+            "[catalog" + inline + f"{allowed})\n",
+            encoding="utf-8",
+        )
+        self.validator.validate_repository(root)
 
     def test_forbidden_empty_directory_and_orphan_design(self):
         temporary, root = self.with_tree()
@@ -343,6 +397,12 @@ class CatalogValidationTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         write_json(root / "examples/status-actions-response.json", [])
         self.assert_invalid(root, "response")
+        create_valid_tree(root)
+        response_path = root / "examples/status-actions-response.json"
+        malformed = response_value()
+        malformed["plans"]["cowork-native"]["sections"] = {}
+        write_json(response_path, malformed)
+        self.assert_invalid(root, "sections")
 
     def test_cli(self):
         completed = subprocess.run(
@@ -472,6 +532,81 @@ class CatalogValidationTests(unittest.TestCase):
             exact.write_text(payload + " ", encoding="utf-8")
             with self.assertRaises(self.validator.ValidationError):
                 self.validator.load_json(exact, limit)
+
+        deeply_nested = root / "deep-malformed.json"
+        deeply_nested.write_text(("[" * 1500) + "0" + ("]" * 1500), encoding="utf-8")
+        with self.assertRaises(self.validator.ValidationError) as context:
+            self.validator.load_json(
+                deeply_nested,
+                self.validator.EXAMPLE_LIMIT,
+                self.validator.EXAMPLE_MAX_DEPTH,
+            )
+        self.assertIn("JSON", str(context.exception))
+
+    def test_example_and_schema_tooling_limits(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        for name, limit, depth in (
+            ("example.json", self.validator.EXAMPLE_LIMIT, self.validator.EXAMPLE_MAX_DEPTH),
+            ("schema.json", self.validator.SCHEMA_LIMIT, self.validator.SCHEMA_MAX_DEPTH),
+        ):
+            path = root / name
+            payload = '{"a":"' + ("x" * (limit - 8)) + '"}'
+            path.write_text(payload, encoding="utf-8")
+            self.validator.load_json(path, limit, depth)
+            path.write_text(payload + " ", encoding="utf-8")
+            with self.assertRaises(self.validator.ValidationError):
+                self.validator.load_json(path, limit, depth)
+        nested = "leaf"
+        for _ in range(self.validator.EXAMPLE_MAX_DEPTH):
+            nested = {"a": nested}
+        path = root / "example-depth.json"
+        write_json(path, nested)
+        self.validator.load_json(
+            path,
+            self.validator.EXAMPLE_LIMIT,
+            self.validator.EXAMPLE_MAX_DEPTH,
+        )
+        nested = {"a": nested}
+        write_json(path, nested)
+        with self.assertRaises(self.validator.ValidationError):
+            self.validator.load_json(
+                path,
+                self.validator.EXAMPLE_LIMIT,
+                self.validator.EXAMPLE_MAX_DEPTH,
+            )
+
+    def test_repository_total_limits(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        files = []
+        for index in range(self.validator.REPOSITORY_FILE_LIMIT):
+            path = root / f"f{index}"
+            path.write_bytes(b"")
+            files.append((f"f{index}", path))
+        self.validator.enforce_repository_limits(files)
+        extra = root / "extra"
+        extra.write_bytes(b"")
+        with self.assertRaises(self.validator.ValidationError):
+            self.validator.enforce_repository_limits(files + [("extra", extra)])
+
+        exact = root / "exact"
+        exact.write_bytes(b"x" * self.validator.REPOSITORY_BYTE_LIMIT)
+        self.validator.enforce_repository_limits([("exact", exact)])
+        exact.write_bytes(exact.read_bytes() + b"x")
+        with self.assertRaises(self.validator.ValidationError):
+            self.validator.enforce_repository_limits([("exact", exact)])
+
+        temporary2, root2 = self.with_tree()
+        self.addCleanup(temporary2.cleanup)
+        current_count = len(self.validator.repository_files(root2))
+        for index in range(self.validator.REPOSITORY_FILE_LIMIT - current_count):
+            write_json(root2 / "examples" / f"extra-{index}.json", {})
+        self.validator.validate_repository(root2)
+        write_json(root2 / "examples" / "one-too-many.json", {})
+        self.assert_invalid(root2, "file-count")
 
     def test_content_specific_and_release_byte_limits(self):
         temporary, root = self.with_tree()
@@ -656,8 +791,11 @@ class CatalogValidationTests(unittest.TestCase):
             "catalog/releases/v001/designs/a/extra.json",
             "examples/a.txt",
             "schemas/a.json",
+            "tests/__init__.py",
         ):
             self.assertFalse(self.validator.is_allowed_path(path), path)
+        self.assertNotIn("tests/__init__.py", self.validator.REQUIRED_PATHS)
+        self.assertFalse((ROOT / "tests" / "__init__.py").exists())
 
     def test_design_rule_boundaries_and_publication_probes(self):
         design = design_value()
@@ -868,9 +1006,23 @@ class WorkflowSafetyTests(unittest.TestCase):
         self.assertTrue(uses)
         self.assertTrue(all(re.fullmatch(r"[^@]+@[0-9a-f]{40}", item) for item in uses))
         self.assertIn("fetch-depth: 0", workflow)
-        self.assertIn("python -B -m unittest discover -s tests", workflow)
-        self.assertIn('git fetch --no-tags origin "${{ github.base_ref }}"', workflow)
-        self.assertIn('BASE_REF="origin/${{ github.base_ref }}"', workflow)
+        self.assertIn("persist-credentials: false", workflow)
+        self.assertIn(
+            "python -B -m unittest discover -s tests -p 'test_*.py'",
+            workflow,
+        )
+        self.assertNotRegex(workflow, r"(?m)^\s*run:.*\s-t(?:\s|$)")
+        self.assertIn("BASE_REF_NAME: ${{ github.base_ref }}", workflow)
+        run_blocks = "\n".join(
+            match.group(1)
+            for match in re.finditer(
+                r"(?ms)^\s+run:\s*\|\n(.*?)(?=^\s{6}- name:|\Z)",
+                workflow,
+            )
+        )
+        self.assertNotIn("${{ github.base_ref }}", run_blocks)
+        self.assertIn('git fetch --no-tags origin "$BASE_REF_NAME"', workflow)
+        self.assertIn('BASE_REF="origin/$BASE_REF_NAME"', workflow)
         self.assertIn('BASE_REF="HEAD^"', workflow)
         self.assertIn(
             'python scripts/validate_catalog.py --base-ref "$BASE_REF"', workflow

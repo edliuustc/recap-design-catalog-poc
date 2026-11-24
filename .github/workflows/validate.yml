@@ -17,16 +17,20 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Run catalog tests
-        run: python -B -m unittest discover -s tests
+        run: python -B -m unittest discover -s tests -p 'test_*.py'
 
       - name: Validate catalog and immutable releases
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF_NAME: ${{ github.base_ref }}
         run: |
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            git fetch --no-tags origin "${{ github.base_ref }}"
-            BASE_REF="origin/${{ github.base_ref }}"
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            git fetch --no-tags origin "$BASE_REF_NAME"
+            BASE_REF="origin/$BASE_REF_NAME"
           else
             BASE_REF="HEAD^"
           fi

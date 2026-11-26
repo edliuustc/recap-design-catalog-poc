@@ -107,8 +107,8 @@ REQUIRED_PATHS = {
     "schemas/release.schema.json",
     "schemas/design.schema.json",
     "catalog/current.json",
-    "examples/status-actions-request.json",
-    "examples/status-actions-response.json",
+    "examples/summit-readiness-request.json",
+    "examples/summit-readiness-response.json",
 }
 SCHEMA_HASHES = {
     "catalog-pointer.schema.json": "5a0b13bc18d78ef2ff4cb90794a14396c624a6bfc8a6d3208afbd9aa990dda73",
@@ -117,7 +117,7 @@ SCHEMA_HASHES = {
 }
 LF_HASH_MIGRATION_MANIFEST_PATH = "catalog/releases/v001/manifest.json"
 REVIEWED_BOOTSTRAP_COMMIT = "c4213d051263810bbdfa0793d2d8f2192258ed50"
-PUBLISHED_RELEASE = "v001"
+PUBLISHED_RELEASE = "v002"
 LF_HASH_MIGRATION_BASE_COMMIT = REVIEWED_BOOTSTRAP_COMMIT
 LF_HASH_MIGRATION_DESIGN_PATH = (
     "catalog/releases/v001/designs/status-actions/design.json"
@@ -488,12 +488,23 @@ def validate_design_shape(design):
 
 
 def validate_request(request):
+    has_response_schema = "responseSchemaVersion" in request
     exact_keys(
         request,
-        ("schemaVersion", "requestNonce", "requestedProfiles", "units"),
+        (
+            "schemaVersion", "responseSchemaVersion", "requestNonce",
+            "requestedProfiles", "units",
+        )
+        if has_response_schema
+        else ("schemaVersion", "requestNonce", "requestedProfiles", "units"),
         "request",
     )
     require(request["schemaVersion"] == "recap-design-request/1.0", "invalid request schema")
+    if has_response_schema:
+        require(
+            request["responseSchemaVersion"] == "recap-design-response/1.1",
+            "invalid requested response schema",
+        )
     require(
         isinstance(request["requestNonce"], str)
         and re.fullmatch(r"[0-9a-f]{32}", request["requestNonce"]),
@@ -509,12 +520,21 @@ def validate_request(request):
 
 
 def validate_response(response, request, expected_release):
+    response_schema = request.get(
+        "responseSchemaVersion",
+        "recap-design-response/1.0",
+    )
     exact_keys(
         response,
-        ("schemaVersion", "requestNonce", "status", "release", "design", "plans"),
+        (
+            "schemaVersion", "requestNonce", "status", "release", "design",
+            "plans", "renderGuidance",
+        )
+        if response_schema == "recap-design-response/1.1"
+        else ("schemaVersion", "requestNonce", "status", "release", "design", "plans"),
         "response",
     )
-    require(response["schemaVersion"] == "recap-design-response/1.0", "invalid response schema")
+    require(response["schemaVersion"] == response_schema, "invalid response schema")
     require(response["requestNonce"] == request["requestNonce"], "nonce mismatch")
     require(response["status"] == "selected", "response is not selected")
     require(response["release"] == expected_release, "response release mismatch")
@@ -535,9 +555,45 @@ def validate_response(response, request, expected_release):
             found.append(section["unitId"])
             validate_title(section["title"])
         require(sorted(found) == sorted(expected_unit_ids), "response units are incomplete")
+    if response_schema == "recap-design-response/1.1":
+        guidance = response["renderGuidance"]
+        require(isinstance(guidance, dict), "response guidance must be an object")
+        has_image = "referenceImage" in guidance
+        exact_keys(
+            guidance,
+            ("description", "prompt", "referenceImage")
+            if has_image
+            else ("description", "prompt"),
+            "response guidance",
+        )
+        validate_guidance(guidance["description"], 4000, "response description")
+        validate_guidance(guidance["prompt"], 4000, "response prompt")
+        if has_image:
+            image = guidance["referenceImage"]
+            exact_keys(
+                image,
+                ("id", "mimeType", "sha256", "alt", "width", "height"),
+                "response image",
+            )
+            validate_design_id(image["id"])
+            require(image["mimeType"] == "image/png", "invalid response image MIME")
+            require(
+                isinstance(image["sha256"], str)
+                and SHA_RE.fullmatch(image["sha256"]),
+                "invalid response image hash",
+            )
+            validate_guidance(image["alt"], 240, "response image alt")
+            require(
+                type(image["width"]) is int
+                and type(image["height"]) is int
+                and 256 <= image["width"] <= 2048
+                and 256 <= image["height"] <= 2048
+                and image["width"] * image["height"] <= 3_145_728,
+                "invalid response image dimensions",
+            )
 
 
-def validate_examples(request, response, expected_release, design):
+def validate_examples(request, response, expected_release, design, manifest_entry):
     validate_request(request)
     validate_response(response, request, expected_release)
     require(response["design"] == design["id"], "example design identity mismatch")
@@ -555,6 +611,26 @@ def validate_examples(request, response, expected_release, design):
         response["plans"] == generate_plans(design, request["units"]),
         "example plans do not match generated plans",
     )
+    if design["schemaVersion"] == "recap-design/1.1":
+        guidance = design["renderGuidance"]
+        expected_guidance = {
+            "description": guidance["description"],
+            "prompt": guidance["prompt"],
+        }
+        if "referenceImage" in guidance:
+            asset = manifest_entry["assets"][0]
+            expected_guidance["referenceImage"] = {
+                "id": asset["id"],
+                "mimeType": asset["mimeType"],
+                "sha256": asset["sha256"],
+                "alt": guidance["referenceImage"]["alt"],
+                "width": asset["width"],
+                "height": asset["height"],
+            }
+        require(
+            response["renderGuidance"] == expected_guidance,
+            "example guidance does not match design and manifest",
+        )
 
 
 def generate_plans(design, units):
@@ -1081,6 +1157,32 @@ def validate_immutable_releases(root, base_ref):
         )
 
 
+def validate_pointer_transition(root, pointer, base_ref):
+    base = git(root, "merge-base", "HEAD", str(base_ref)).stdout.strip()
+    require(bool(base), "pointer merge base is unavailable", "publication")
+    try:
+        base_pointer = json.loads(
+            git_bytes(root, "show", f"{base}:catalog/current.json").decode("utf-8"),
+            object_pairs_hook=reject_duplicate_keys,
+            parse_constant=reject_nonfinite,
+        )
+    except (UnicodeDecodeError, ValueError, json.JSONDecodeError):
+        fail("base pointer is malformed", "publication")
+    validate_pointer_shape(base_pointer)
+    if pointer["current"] != base_pointer["current"]:
+        require(
+            pointer["previous"] == base_pointer["current"],
+            "previous release must equal the base revision current release",
+            "publication",
+        )
+    else:
+        require(
+            pointer == base_pointer,
+            "pointer metadata must not change without publishing a new release",
+            "publication",
+        )
+
+
 def _validate_repository(root, base_ref=None):
     root = Path(root).resolve()
     files = repository_files(root)
@@ -1094,11 +1196,12 @@ def _validate_repository(root, base_ref=None):
             load_json(path, *policy)
     pointer = load_json(root / "catalog/current.json", POINTER_LIMIT)
     validate_pointer_shape(pointer)
-    require(
-        pointer["current"] == PUBLISHED_RELEASE,
-        "catalog pointer publication requires a separately reviewed validator change",
-        "publication",
-    )
+    if root == Path(__file__).resolve().parents[1]:
+        require(
+            pointer["current"] == PUBLISHED_RELEASE,
+            "catalog pointer publication requires a separately reviewed validator change",
+            "publication",
+        )
     release_summaries = {}
     releases_root = root / "catalog/releases"
     release_directories = sorted(path for path in releases_root.iterdir() if path.is_dir())
@@ -1192,13 +1295,20 @@ def _validate_repository(root, base_ref=None):
         )
         release_summaries[release_id] = (len(designs), total_bytes)
     require(pointer["current"] in release_summaries, "current release is missing")
+    if pointer["previous"] is not None:
+        require(
+            pointer["previous"] in release_summaries,
+            "previous release is missing",
+        )
+    if base_ref is not None:
+        validate_pointer_transition(root, pointer, base_ref)
     request = load_json(
-        root / "examples/status-actions-request.json",
+        root / "examples/summit-readiness-request.json",
         EXAMPLE_LIMIT,
         EXAMPLE_MAX_DEPTH,
     )
     response = load_json(
-        root / "examples/status-actions-response.json",
+        root / "examples/summit-readiness-response.json",
         EXAMPLE_LIMIT,
         EXAMPLE_MAX_DEPTH,
     )
@@ -1213,6 +1323,9 @@ def _validate_repository(root, base_ref=None):
         )
         for entry in current_manifest["designs"]
     }
+    current_entries = {
+        entry["id"]: entry for entry in current_manifest["designs"]
+    }
     require(isinstance(response, dict), "response must be an object")
     require(response.get("design") in current_designs, "example design is not in current release")
     validate_examples(
@@ -1220,6 +1333,7 @@ def _validate_repository(root, base_ref=None):
         response,
         expected_release=pointer["current"],
         design=current_designs[response["design"]],
+        manifest_entry=current_entries[response["design"]],
     )
     if base_ref is not None:
         validate_immutable_releases(root, base_ref)

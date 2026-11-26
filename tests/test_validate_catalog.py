@@ -185,8 +185,8 @@ def create_valid_tree(root):
             ],
         },
     )
-    write_json(root / "examples" / "status-actions-request.json", request_value())
-    write_json(root / "examples" / "status-actions-response.json", response_value())
+    write_json(root / "examples" / "summit-readiness-request.json", request_value())
+    write_json(root / "examples" / "summit-readiness-response.json", response_value())
     for name in (
         "catalog-pointer.schema.json",
         "release.schema.json",
@@ -236,9 +236,9 @@ class CatalogValidationTests(unittest.TestCase):
         create_valid_tree(root)
         return temporary, root
 
-    def test_valid_v001(self):
+    def test_published_repository_uses_v002(self):
         summary = self.validator.validate_repository(ROOT)
-        self.assertEqual("v001", summary["release"])
+        self.assertEqual("v002", summary["release"])
         self.assertEqual(1, summary["designs"])
 
     def test_valid_unpublished_v002_with_reference_image(self):
@@ -424,18 +424,124 @@ class CatalogValidationTests(unittest.TestCase):
                     self.validator.validate_png(path, asset)
 
     def test_pointer_change_requires_separate_publication_change(self):
-        temporary, root = self.with_tree()
+        pointer = json.loads(
+            (ROOT / "catalog/current.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(self.validator.PUBLISHED_RELEASE, pointer["current"])
+        with mock.patch.object(self.validator, "PUBLISHED_RELEASE", "v999"):
+            with self.assertRaisesRegex(
+                self.validator.ValidationError,
+                "separately reviewed validator change",
+            ):
+                self.validator.validate_repository(ROOT)
+
+    def test_pointer_transition_requires_base_current_as_previous(self):
+        temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        pointer = root / "catalog/current.json"
+        root = Path(temporary.name) / "catalog"
+        shutil.copytree(
+            ROOT,
+            root,
+            ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"),
+        )
+        self._git(root, "init", "-b", "main")
+        self._git(root, "config", "user.name", "Catalog Test")
+        self._git(root, "config", "user.email", "catalog" + "@example.invalid")
+        self._git(root, "add", ".")
+        self._git(root, "commit", "-m", "base")
+        self._git(root, "commit", "--allow-empty", "-m", "tip")
+        shutil.copytree(
+            root / "catalog/releases/v002",
+            root / "catalog/releases/v003",
+        )
+        manifest_path = root / "catalog/releases/v003/manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["id"] = "v003"
+        write_json(manifest_path, manifest)
+        pointer_path = root / "catalog/current.json"
         write_json(
-            pointer,
+            pointer_path,
+            {
+                "schemaVersion": "recap-catalog-pointer/1.0",
+                "current": "v003",
+                "previous": "v002",
+            },
+        )
+        response_path = root / "examples/summit-readiness-response.json"
+        response = json.loads(response_path.read_text(encoding="utf-8"))
+        response["release"] = "v003"
+        write_json(response_path, response)
+        summary = self.validator.validate_repository(root, base_ref="HEAD")
+        self.assertEqual("v003", summary["release"])
+        invalid = json.loads(pointer_path.read_text(encoding="utf-8"))
+        invalid["previous"] = "v001"
+        write_json(pointer_path, invalid)
+        with self.assertRaisesRegex(
+            self.validator.ValidationError,
+            "previous release must equal",
+        ):
+            self.validator.validate_repository(root, base_ref="HEAD")
+        write_json(
+            pointer_path,
             {
                 "schemaVersion": "recap-catalog-pointer/1.0",
                 "current": "v002",
-                "previous": "v001",
+                "previous": None,
             },
         )
-        self.assert_invalid(root, "separately reviewed validator change")
+        response["release"] = "v002"
+        write_json(response_path, response)
+        with self.assertRaisesRegex(
+            self.validator.ValidationError,
+            "pointer metadata must not change",
+        ):
+            self.validator.validate_repository(root, base_ref="HEAD")
+
+    def test_v11_example_response_rejects_guidance_and_schema_mismatches(self):
+        request = json.loads(
+            (ROOT / "examples/summit-readiness-request.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        response = json.loads(
+            (ROOT / "examples/summit-readiness-response.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        design = json.loads(
+            (
+                ROOT
+                / "catalog/releases/v002/designs/summit-readiness/design.json"
+            ).read_text(encoding="utf-8")
+        )
+        manifest_entry = json.loads(
+            (
+                ROOT / "catalog/releases/v002/manifest.json"
+            ).read_text(encoding="utf-8")
+        )["designs"][0]
+        mutations = []
+        missing_guidance = json.loads(json.dumps(response))
+        del missing_guidance["renderGuidance"]
+        mutations.append((request, missing_guidance))
+        extra_guidance = json.loads(json.dumps(response))
+        extra_guidance["renderGuidance"]["extra"] = True
+        mutations.append((request, extra_guidance))
+        malformed_image = json.loads(json.dumps(response))
+        del malformed_image["renderGuidance"]["referenceImage"]["sha256"]
+        mutations.append((request, malformed_image))
+        legacy_request = json.loads(json.dumps(request))
+        del legacy_request["responseSchemaVersion"]
+        mutations.append((legacy_request, response))
+        for candidate_request, candidate_response in mutations:
+            with self.subTest(response=candidate_response):
+                with self.assertRaises(self.validator.ValidationError):
+                    self.validator.validate_examples(
+                        candidate_request,
+                        candidate_response,
+                        expected_release="v002",
+                        design=design,
+                        manifest_entry=manifest_entry,
+                    )
 
     def test_schema_artifacts_encode_version_specific_fields(self):
         design_schema = json.loads(
@@ -810,11 +916,17 @@ class CatalogValidationTests(unittest.TestCase):
         self.assertIn("must not be enabled", lowered)
 
     def test_examples_match_plugin_contract(self):
+        manifest_entry = {
+            "id": "status-actions",
+            "path": "designs/status-actions/design.json",
+            "sha256": "0" * 64,
+        }
         self.validator.validate_examples(
             request_value(),
             response_value(),
             expected_release="v001",
             design=design_value(),
+            manifest_entry=manifest_entry,
         )
         broken = response_value()
         broken["plans"]["cowork-native"]["sections"][0]["id"] = "s2"
@@ -824,6 +936,7 @@ class CatalogValidationTests(unittest.TestCase):
                 broken,
                 expected_release="v001",
                 design=design_value(),
+                manifest_entry=manifest_entry,
             )
         wrong_design = response_value()
         wrong_design["design"] = "other"
@@ -833,6 +946,7 @@ class CatalogValidationTests(unittest.TestCase):
                 wrong_design,
                 expected_release="v001",
                 design=design_value(),
+                manifest_entry=manifest_entry,
             )
         wrong_plan = response_value()
         wrong_plan["plans"]["cowork-native"]["sections"].reverse()
@@ -844,13 +958,54 @@ class CatalogValidationTests(unittest.TestCase):
                 wrong_plan,
                 expected_release="v001",
                 design=design_value(),
+                manifest_entry=manifest_entry,
+            )
+        wrong_nonce = response_value()
+        wrong_nonce["requestNonce"] = "f" * 32
+        with self.assertRaises(self.validator.ValidationError):
+            self.validator.validate_examples(
+                request_value(),
+                wrong_nonce,
+                expected_release="v001",
+                design=design_value(),
+                manifest_entry=manifest_entry,
+            )
+        wrong_profiles = request_value()
+        wrong_profiles["requestedProfiles"] = ["cowork-native"]
+        with self.assertRaises(self.validator.ValidationError):
+            self.validator.validate_examples(
+                wrong_profiles,
+                response_value(),
+                expected_release="v001",
+                design=design_value(),
+                manifest_entry=manifest_entry,
+            )
+        missing_profile = response_value()
+        del missing_profile["plans"]["bizchat-rich-text"]
+        with self.assertRaises(self.validator.ValidationError):
+            self.validator.validate_examples(
+                request_value(),
+                missing_profile,
+                expected_release="v001",
+                design=design_value(),
+                manifest_entry=manifest_entry,
+            )
+        duplicate_unit = response_value()
+        duplicate_unit["plans"]["cowork-native"]["sections"][1]["unitId"] = "u1"
+        with self.assertRaises(self.validator.ValidationError):
+            self.validator.validate_examples(
+                request_value(),
+                duplicate_unit,
+                expected_release="v001",
+                design=design_value(),
+                manifest_entry=manifest_entry,
             )
         temporary, root = self.with_tree()
         self.addCleanup(temporary.cleanup)
-        write_json(root / "examples/status-actions-response.json", [])
+        write_json(root / "examples/summit-readiness-response.json", [])
         self.assert_invalid(root, "response")
         create_valid_tree(root)
-        response_path = root / "examples/status-actions-response.json"
+        response_path = root / "examples/summit-readiness-response.json"
         malformed = response_value()
         malformed["plans"]["cowork-native"]["sections"] = {}
         write_json(response_path, malformed)
@@ -1442,14 +1597,14 @@ class CatalogValidationTests(unittest.TestCase):
         with self.assertRaises(self.validator.ValidationError):
             self.validator.validate_repository(root, base_ref="HEAD^")
 
-    def test_previous_release_is_audit_metadata_only(self):
+    def test_previous_release_must_exist(self):
         temporary, root = self.with_tree()
         self.addCleanup(temporary.cleanup)
         pointer_path = root / "catalog/current.json"
         pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
         pointer["previous"] = "v999"
         write_json(pointer_path, pointer)
-        self.validator.validate_repository(root)
+        self.assert_invalid(root, "previous release is missing")
 
     @staticmethod
     def _git(root, *arguments):

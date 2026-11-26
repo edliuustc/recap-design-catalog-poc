@@ -33,14 +33,13 @@ for each schema, 100 repository files, and 8 MiB for all repository files
 combined. Catalog runtime limits remain stricter: 4 KiB pointer, 32 KiB
 manifest, 64 KiB per design, 192 KiB per PNG, depth 8, and 4 MiB per release.
 
-## Prepared releases
+## Releases
 
-- `v001` remains the published `current` release.
-- `v002` is prepared but unpublished. It adds the v1.1 Summit readiness design
+- `v002` is the published `current` release. It adds the v1.1 Summit readiness design
   with required description/prompt/rules and one strict RGB PNG reference.
-- Publishing is a separate reviewed change that updates `current.json` and the
-  validator's `PUBLISHED_RELEASE` gate after MCPS Test multimodal serving is
-  explicitly approved and enabled.
+- `v001` is retained as `previous` for rollback.
+- Publication updates both `current.json` and the validator's
+  `PUBLISHED_RELEASE` gate in one reviewed change.
 
 The exact LF-only v001 manifest migration from bootstrap commit
 `c4213d051263810bbdfa0793d2d8f2192258ed50` is the sole historical

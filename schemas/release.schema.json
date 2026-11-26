@@ -4,7 +4,9 @@
   "additionalProperties": false,
   "required": ["schemaVersion", "id", "status", "designs"],
   "properties": {
-    "schemaVersion": {"const": "recap-design-release/1.0"},
+    "schemaVersion": {
+      "enum": ["recap-design-release/1.0", "recap-design-release/1.1"]
+    },
     "id": {"type": "string", "pattern": "^v(?!000)[0-9]{3}$"},
     "status": {"const": "approved"},
     "designs": {
@@ -16,14 +18,101 @@
         "additionalProperties": false,
         "required": ["id", "path", "sha256"],
         "properties": {
-          "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,63}$"
+          },
           "path": {
             "type": "string",
             "pattern": "^designs/[a-z][a-z0-9-]{0,63}/design\\.json$"
           },
-          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "assets": {
+            "type": "array",
+            "maxItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "path",
+                "sha256",
+                "mimeType",
+                "byteLength",
+                "width",
+                "height"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,63}$"
+                },
+                "path": {
+                  "type": "string",
+                  "pattern": "^assets/[a-z][a-z0-9-]{0,63}\\.png$"
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "mimeType": {"const": "image/png"},
+                "byteLength": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 196608
+                },
+                "width": {
+                  "type": "integer",
+                  "minimum": 256,
+                  "maximum": 2048
+                },
+                "height": {
+                  "type": "integer",
+                  "minimum": 256,
+                  "maximum": 2048
+                }
+              }
+            }
+          }
         }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schemaVersion": {"const": "recap-design-release/1.0"}
+        }
+      },
+      "then": {
+        "properties": {
+          "designs": {
+            "items": {
+              "not": {"required": ["assets"]}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "schemaVersion": {"const": "recap-design-release/1.1"}
+        }
+      },
+      "then": {
+        "properties": {
+          "designs": {
+            "items": {
+              "required": ["assets"]
+            }
+          }
+        }
+      }
+    }
+  ]
 }

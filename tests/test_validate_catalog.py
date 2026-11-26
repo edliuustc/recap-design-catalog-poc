@@ -236,9 +236,9 @@ class CatalogValidationTests(unittest.TestCase):
         create_valid_tree(root)
         return temporary, root
 
-    def test_published_repository_uses_v002(self):
+    def test_published_repository_uses_v003(self):
         summary = self.validator.validate_repository(ROOT)
-        self.assertEqual("v002", summary["release"])
+        self.assertEqual("v003", summary["release"])
         self.assertEqual(1, summary["designs"])
 
     def test_valid_unpublished_v002_with_reference_image(self):
@@ -451,28 +451,28 @@ class CatalogValidationTests(unittest.TestCase):
         self._git(root, "commit", "-m", "base")
         self._git(root, "commit", "--allow-empty", "-m", "tip")
         shutil.copytree(
-            root / "catalog/releases/v002",
             root / "catalog/releases/v003",
+            root / "catalog/releases/v004",
         )
-        manifest_path = root / "catalog/releases/v003/manifest.json"
+        manifest_path = root / "catalog/releases/v004/manifest.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        manifest["id"] = "v003"
+        manifest["id"] = "v004"
         write_json(manifest_path, manifest)
         pointer_path = root / "catalog/current.json"
         write_json(
             pointer_path,
             {
                 "schemaVersion": "recap-catalog-pointer/1.0",
-                "current": "v003",
-                "previous": "v002",
+                "current": "v004",
+                "previous": "v003",
             },
         )
         response_path = root / "examples/summit-readiness-response.json"
         response = json.loads(response_path.read_text(encoding="utf-8"))
-        response["release"] = "v003"
+        response["release"] = "v004"
         write_json(response_path, response)
         summary = self.validator.validate_repository(root, base_ref="HEAD")
-        self.assertEqual("v003", summary["release"])
+        self.assertEqual("v004", summary["release"])
         invalid = json.loads(pointer_path.read_text(encoding="utf-8"))
         invalid["previous"] = "v001"
         write_json(pointer_path, invalid)
@@ -485,11 +485,11 @@ class CatalogValidationTests(unittest.TestCase):
             pointer_path,
             {
                 "schemaVersion": "recap-catalog-pointer/1.0",
-                "current": "v002",
+                "current": "v003",
                 "previous": None,
             },
         )
-        response["release"] = "v002"
+        response["release"] = "v003"
         write_json(response_path, response)
         with self.assertRaisesRegex(
             self.validator.ValidationError,
@@ -511,12 +511,12 @@ class CatalogValidationTests(unittest.TestCase):
         design = json.loads(
             (
                 ROOT
-                / "catalog/releases/v002/designs/summit-readiness/design.json"
+                / "catalog/releases/v003/designs/summit-readiness/design.json"
             ).read_text(encoding="utf-8")
         )
         manifest_entry = json.loads(
             (
-                ROOT / "catalog/releases/v002/manifest.json"
+                ROOT / "catalog/releases/v003/manifest.json"
             ).read_text(encoding="utf-8")
         )["designs"][0]
         mutations = []
@@ -529,6 +529,10 @@ class CatalogValidationTests(unittest.TestCase):
         malformed_image = json.loads(json.dumps(response))
         del malformed_image["renderGuidance"]["referenceImage"]["sha256"]
         mutations.append((request, malformed_image))
+        changed_prompt = json.loads(json.dumps(response))
+        changed_prompt["renderGuidance"]["prompt"] = "Use another safe layout."
+        changed_hash = json.loads(json.dumps(response))
+        changed_hash["renderGuidance"]["referenceImage"]["sha256"] = "f" * 64
         legacy_request = json.loads(json.dumps(request))
         del legacy_request["responseSchemaVersion"]
         mutations.append((legacy_request, response))
@@ -538,10 +542,51 @@ class CatalogValidationTests(unittest.TestCase):
                     self.validator.validate_examples(
                         candidate_request,
                         candidate_response,
-                        expected_release="v002",
+                        expected_release="v003",
                         design=design,
                         manifest_entry=manifest_entry,
                     )
+        for candidate_response in (changed_prompt, changed_hash):
+            with self.subTest(drift=candidate_response["renderGuidance"]):
+                with self.assertRaisesRegex(
+                    self.validator.ValidationError,
+                    "example guidance does not match design and manifest",
+                ):
+                    self.validator.validate_examples(
+                        request,
+                        candidate_response,
+                        expected_release="v003",
+                        design=design,
+                        manifest_entry=manifest_entry,
+                    )
+
+    def test_changed_design_requires_version_increment(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name) / "catalog"
+        shutil.copytree(
+            ROOT,
+            root,
+            ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"),
+        )
+        design_path = (
+            root
+            / "catalog/releases/v003/designs/summit-readiness/design.json"
+        )
+        design = json.loads(design_path.read_text(encoding="utf-8"))
+        design["version"] = "1.0.0"
+        write_json(design_path, design)
+        manifest_path = root / "catalog/releases/v003/manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["designs"][0]["sha256"] = hashlib.sha256(
+            design_path.read_bytes()
+        ).hexdigest()
+        write_json(manifest_path, manifest)
+        with self.assertRaisesRegex(
+            self.validator.ValidationError,
+            "increment its version",
+        ):
+            self.validator.validate_repository(root)
 
     def test_schema_artifacts_encode_version_specific_fields(self):
         design_schema = json.loads(

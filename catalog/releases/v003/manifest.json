@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "recap-design-release/1.1",
+  "id": "v003",
+  "status": "approved",
+  "designs": [
+    {
+      "id": "summit-readiness",
+      "path": "designs/summit-readiness/design.json",
+      "sha256": "50cdff492568ddcf3b21e42c0e7dbaf370e900f8b78e48669e4c7c2a551d1353",
+      "assets": [
+        {
+          "id": "summit-readiness-layout",
+          "path": "assets/summit-readiness-layout.png",
+          "sha256": "c35ec81693957afae44ad5d51d7abe03a9e213e26b52047f5135bbbe9642151a",
+          "mimeType": "image/png",
+          "byteLength": 162326,
+          "width": 720,
+          "height": 480
+        }
+      ]
+    }
+  ]
+}

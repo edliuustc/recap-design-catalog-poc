@@ -35,9 +35,13 @@ manifest, 64 KiB per design, 192 KiB per PNG, depth 8, and 4 MiB per release.
 
 ## Releases
 
-- `v002` is the published `current` release. It adds the v1.1 Summit readiness design
+- `v003` is the published `current` release. It retains the v1.1 Summit readiness design
+  and strengthens its original layout description: horizontal gate cards with arrows,
+  a two-column actions/questions section, restrained Fluent styling, native detail
+  disclosure, and no KPI tiles.
+- `v002` introduced the v1.1 Summit readiness design
   with required description/prompt/rules and one strict RGB PNG reference.
-- `v001` is retained as `previous` for rollback.
+- `v002` is retained as `previous` for rollback.
 - Publication updates both `current.json` and the validator's
   `PUBLISHED_RELEASE` gate in one reviewed change.
 

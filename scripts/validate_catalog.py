@@ -117,7 +117,7 @@ SCHEMA_HASHES = {
 }
 LF_HASH_MIGRATION_MANIFEST_PATH = "catalog/releases/v001/manifest.json"
 REVIEWED_BOOTSTRAP_COMMIT = "c4213d051263810bbdfa0793d2d8f2192258ed50"
-PUBLISHED_RELEASE = "v002"
+PUBLISHED_RELEASE = "v003"
 LF_HASH_MIGRATION_BASE_COMMIT = REVIEWED_BOOTSTRAP_COMMIT
 LF_HASH_MIGRATION_DESIGN_PATH = (
     "catalog/releases/v001/designs/status-actions/design.json"
@@ -238,6 +238,14 @@ def validate_release_id(value):
 
 def validate_design_id(value):
     require(isinstance(value, str) and DESIGN_RE.fullmatch(value), "invalid design id")
+
+
+def version_tuple(value):
+    require(
+        isinstance(value, str) and VERSION_RE.fullmatch(value),
+        "invalid design version",
+    )
+    return tuple(int(part) for part in value.split("."))
 
 
 def validate_design_path(design_id, value):
@@ -1203,6 +1211,7 @@ def _validate_repository(root, base_ref=None):
             "publication",
         )
     release_summaries = {}
+    prior_designs = {}
     releases_root = root / "catalog/releases"
     release_directories = sorted(path for path in releases_root.iterdir() if path.is_dir())
     require(bool(release_directories), "catalog has no releases")
@@ -1265,6 +1274,17 @@ def _validate_repository(root, base_ref=None):
                 "release and design schema mismatch",
             )
             require(design["id"] == entry["id"], "design identity mismatch")
+            prior = prior_designs.get(design["id"])
+            if prior is not None and digest != prior["digest"]:
+                require(
+                    version_tuple(design["version"]) > version_tuple(prior["version"]),
+                    "changed design must increment its version",
+                    "version",
+                )
+            prior_designs[design["id"]] = {
+                "digest": digest,
+                "version": design["version"],
+            }
             assets = entry.get("assets", [])
             require(
                 (not assets and reference_asset_id is None)

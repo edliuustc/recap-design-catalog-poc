@@ -2,7 +2,7 @@
   "schemaVersion": "recap-design-response/1.1",
   "requestNonce": "0123456789abcdef0123456789abcdef",
   "status": "selected",
-  "release": "v002",
+  "release": "v003",
   "design": "summit-readiness",
   "plans": {
     "cowork-native": {
@@ -63,8 +63,8 @@
     }
   },
   "renderGuidance": {
-    "description": "A concise launch readiness view with one dominant blocker, a vertical prerequisite chain, owner grouped actions, and a compact unresolved items table.",
-    "prompt": "Use the reference image as presentation guidance only. Lead with the current blocker and outcome. Render the prerequisite sequence as the primary visual flow, then show recorded actions grouped by owner and unresolved questions last. Preserve every grounded fact, status, owner, date, evidence reference, and source disclosure exactly. Do not infer completion, approval, dependencies, dates, or additional actions.",
+    "description": "The reference example places the meeting title, grounded blocked status, and one concise summary at the top. Its middle uses three horizontal cards connected by arrows to show a strict prerequisite sequence rather than parallel tasks. Its lower section places recorded actions on the left and open questions on the right. Its bottom preserves the grounded source disclosure and evidence count. Use a restrained Fluent style with low decoration and no KPI tiles. Emphasize only grounded blocker, owner, dependency, and unknown-date information.",
+    "prompt": "Use the reference image and description as presentation guidance only. Prefer supported Cowork native cards and columns. When the grounded model contains three readiness gates, keep them as distinct horizontal cards connected by directional arrows; never invent gate names, counts, order, status, or dependencies. Keep each gate compact and preserve existing native expand or collapse for its grounded detail and evidence when supported. Place recorded actions on the left and open questions on the right when native columns support that layout. When cards, arrows, columns, or disclosure interactions are unavailable, preserve the existing native interactive structure and use supported labelled rows or a stacked layout rather than replacing it with custom static presentation. Use restrained Fluent styling, semantic status colors, clear owner labels, visible unknown-date treatment, and no KPI tiles. Preserve every grounded title, fact, status, owner, date, evidence reference, and source disclosure exactly. Do not infer completion, approval, dependencies, dates, or additional actions.",
     "referenceImage": {
       "id": "summit-readiness-layout",
       "mimeType": "image/png",

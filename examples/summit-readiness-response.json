@@ -1,0 +1,77 @@
+{
+  "schemaVersion": "recap-design-response/1.1",
+  "requestNonce": "0123456789abcdef0123456789abcdef",
+  "status": "selected",
+  "release": "v002",
+  "design": "summit-readiness",
+  "plans": {
+    "cowork-native": {
+      "sections": [
+        {
+          "id": "s1",
+          "unitId": "u1",
+          "title": {
+            "kind": "literal",
+            "value": "Readiness gates"
+          }
+        },
+        {
+          "id": "s2",
+          "unitId": "u2",
+          "title": {
+            "kind": "literal",
+            "value": "Recorded actions"
+          }
+        },
+        {
+          "id": "s3",
+          "unitId": "u3",
+          "title": {
+            "kind": "literal",
+            "value": "Open questions"
+          }
+        }
+      ]
+    },
+    "bizchat-rich-text": {
+      "sections": [
+        {
+          "id": "s1",
+          "unitId": "u1",
+          "title": {
+            "kind": "literal",
+            "value": "Readiness gates"
+          }
+        },
+        {
+          "id": "s2",
+          "unitId": "u2",
+          "title": {
+            "kind": "literal",
+            "value": "Recorded actions"
+          }
+        },
+        {
+          "id": "s3",
+          "unitId": "u3",
+          "title": {
+            "kind": "literal",
+            "value": "Open questions"
+          }
+        }
+      ]
+    }
+  },
+  "renderGuidance": {
+    "description": "A concise launch readiness view with one dominant blocker, a vertical prerequisite chain, owner grouped actions, and a compact unresolved items table.",
+    "prompt": "Use the reference image as presentation guidance only. Lead with the current blocker and outcome. Render the prerequisite sequence as the primary visual flow, then show recorded actions grouped by owner and unresolved questions last. Preserve every grounded fact, status, owner, date, evidence reference, and source disclosure exactly. Do not infer completion, approval, dependencies, dates, or additional actions.",
+    "referenceImage": {
+      "id": "summit-readiness-layout",
+      "mimeType": "image/png",
+      "sha256": "c35ec81693957afae44ad5d51d7abe03a9e213e26b52047f5135bbbe9642151a",
+      "alt": "Reference layout for sequential launch readiness gates",
+      "width": 720,
+      "height": 480
+    }
+  }
+}

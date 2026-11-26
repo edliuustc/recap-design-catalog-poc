@@ -1,5 +1,6 @@
 {
   "schemaVersion": "recap-design-request/1.0",
+  "responseSchemaVersion": "recap-design-response/1.1",
   "requestNonce": "0123456789abcdef0123456789abcdef",
   "requestedProfiles": [
     "cowork-native",
@@ -8,11 +9,15 @@
   "units": [
     {
       "id": "u1",
-      "form": "status_table"
+      "form": "sequence"
     },
     {
       "id": "u2",
       "form": "tasks"
+    },
+    {
+      "id": "u3",
+      "form": "open_questions"
     }
   ]
 }

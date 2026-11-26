@@ -12,7 +12,9 @@
     "profiles"
   ],
   "properties": {
-    "schemaVersion": {"const": "recap-design/1.0"},
+    "schemaVersion": {
+      "enum": ["recap-design/1.0", "recap-design/1.1"]
+    },
     "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
     "version": {"type": "string", "pattern": "^[1-9][0-9]*\\.[0-9]+\\.[0-9]+$"},
     "status": {"const": "approved"},
@@ -41,8 +43,63 @@
         "cowork-native": {"$ref": "#/$defs/profile"},
         "bizchat-rich-text": {"$ref": "#/$defs/profile"}
       }
+    },
+    "renderGuidance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["description", "prompt"],
+      "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "referenceImage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["assetId", "alt"],
+          "properties": {
+            "assetId": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]{0,63}$"
+            },
+            "alt": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 240
+            }
+          }
+        }
+      }
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schemaVersion": {"const": "recap-design/1.0"}
+        }
+      },
+      "then": {
+        "not": {"required": ["renderGuidance"]}
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "schemaVersion": {"const": "recap-design/1.1"}
+        }
+      },
+      "then": {
+        "required": ["renderGuidance"]
+      }
+    }
+  ],
   "$defs": {
     "form": {
       "enum": [

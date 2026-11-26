@@ -2,8 +2,9 @@
 
 This repository contains independently authored, public, declarative examples
 for validating a versioned recap layout catalog. Catalog files describe safe
-ordering and title choices; they contain no executable code, prompts, user
-content, meeting content, credentials, or private assets.
+ordering, title choices, bounded presentation guidance, and optional synthetic
+PNG references. They contain no executable code, user content, meeting content,
+credentials, remote asset URLs, or private assets.
 
 The canonical project location is
 [recap-design-catalog-poc](https://github.com/edliuustc/recap-design-catalog-poc).
@@ -28,9 +29,18 @@ closed document shapes, while the validator also enforces cross-file identity,
 hash, ordering, immutability, byte, and aggregate constraints.
 
 Tooling limits are 128 KiB and depth 16 for each example, 256 KiB and depth 32
-for each schema, 100 repository files, and 2 MiB for all repository files
+for each schema, 100 repository files, and 8 MiB for all repository files
 combined. Catalog runtime limits remain stricter: 4 KiB pointer, 32 KiB
-manifest, 64 KiB per design, depth 8, and 512 KiB per release.
+manifest, 64 KiB per design, 192 KiB per PNG, depth 8, and 4 MiB per release.
+
+## Prepared releases
+
+- `v001` remains the published `current` release.
+- `v002` is prepared but unpublished. It adds the v1.1 Summit readiness design
+  with required description/prompt/rules and one strict RGB PNG reference.
+- Publishing is a separate reviewed change that updates `current.json` and the
+  validator's `PUBLISHED_RELEASE` gate after MCPS Test multimodal serving is
+  explicitly approved and enabled.
 
 The exact LF-only v001 manifest migration from bootstrap commit
 `c4213d051263810bbdfa0793d2d8f2192258ed50` is the sole historical
@@ -50,7 +60,7 @@ required. This catalog source must not be enabled before all conditions hold.
 
 ## Contribution boundary
 
-Submit only newly authored synthetic JSON and repository tooling. Do not submit
-Internal Designer content, private source material, private links, customer or
-employee data, secrets, screenshots, generated assets, or content copied from
-another repository.
+Submit only newly authored synthetic JSON, original synthetic PNG references,
+and repository tooling. Do not submit Internal Designer content, private source
+material, private links, customer or employee data, secrets, screenshots, or
+content copied from another repository.

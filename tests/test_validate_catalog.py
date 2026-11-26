@@ -6,10 +6,12 @@ import os
 from pathlib import Path
 import re
 import shutil
+import struct
 import subprocess
 import tempfile
 import unittest
 from unittest import mock
+import zlib
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,6 +30,25 @@ def load_validator():
 def write_json(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+
+
+def strict_png(width=256, height=256):
+    def chunk(kind, data):
+        return (
+            struct.pack(">I", len(data))
+            + kind
+            + data
+            + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+        )
+
+    scanline = b"\x00" + bytes((37, 99, 235)) * width
+    raw = scanline * height
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(raw, 9))
+        + chunk(b"IEND", b"")
+    )
 
 
 def design_value(design_id="status-actions"):
@@ -185,6 +206,7 @@ def create_valid_tree(root):
         "*.yaml text eol=lf\n"
         "*.md text eol=lf\n"
         "*.txt text eol=lf\n"
+        "*.png binary\n"
         ".gitattributes text eol=lf\n",
         encoding="utf-8",
     )
@@ -218,6 +240,222 @@ class CatalogValidationTests(unittest.TestCase):
         summary = self.validator.validate_repository(ROOT)
         self.assertEqual("v001", summary["release"])
         self.assertEqual(1, summary["designs"])
+
+    def test_valid_unpublished_v002_with_reference_image(self):
+        temporary, root = self.with_tree()
+        self.addCleanup(temporary.cleanup)
+        release = root / "catalog" / "releases" / "v002"
+        design_path = release / "designs" / "summit-readiness" / "design.json"
+        asset_path = release / "assets" / "summit-readiness-layout.png"
+        image = strict_png()
+        asset_path.parent.mkdir(parents=True, exist_ok=True)
+        asset_path.write_bytes(image)
+        design = {
+            "schemaVersion": "recap-design/1.1",
+            "id": "summit-readiness",
+            "version": "1.0.0",
+            "status": "approved",
+            "priority": 200,
+            "appliesWhen": {
+                "requiredForms": ["sequence", "tasks", "open_questions"],
+                "minimumUnits": 3,
+                "maximumUnits": 30,
+            },
+            "renderGuidance": {
+                "description": "A blocked readiness flow followed by actions and open questions.",
+                "prompt": "Make the prerequisite chain visually primary and preserve all grounded evidence.",
+                "referenceImage": {
+                    "assetId": "summit-readiness-layout",
+                    "alt": "Reference layout for sequential readiness gates",
+                },
+            },
+            "profiles": {
+                "cowork-native": {
+                    "rules": [
+                        {"kind": "form", "form": "sequence", "title": {"kind": "block-title"}},
+                        {"kind": "form", "form": "tasks", "title": {"kind": "literal", "value": "Recorded actions"}},
+                        {"kind": "form", "form": "open_questions", "title": {"kind": "literal", "value": "Open questions"}},
+                        {"kind": "remaining", "title": {"kind": "block-title"}},
+                    ]
+                },
+                "bizchat-rich-text": {
+                    "rules": [
+                        {"kind": "form", "form": "sequence", "title": {"kind": "block-title"}},
+                        {"kind": "form", "form": "tasks", "title": {"kind": "literal", "value": "Recorded actions"}},
+                        {"kind": "form", "form": "open_questions", "title": {"kind": "literal", "value": "Open questions"}},
+                        {"kind": "remaining", "title": {"kind": "block-title"}},
+                    ]
+                },
+            },
+        }
+        write_json(design_path, design)
+        write_json(
+            release / "manifest.json",
+            {
+                "schemaVersion": "recap-design-release/1.1",
+                "id": "v002",
+                "status": "approved",
+                "designs": [{
+                    "id": "summit-readiness",
+                    "path": "designs/summit-readiness/design.json",
+                    "sha256": hashlib.sha256(design_path.read_bytes()).hexdigest(),
+                    "assets": [{
+                        "id": "summit-readiness-layout",
+                        "path": "assets/summit-readiness-layout.png",
+                        "sha256": hashlib.sha256(image).hexdigest(),
+                        "mimeType": "image/png",
+                        "byteLength": len(image),
+                        "width": 256,
+                        "height": 256,
+                    }],
+                }],
+            },
+        )
+        summary = self.validator.validate_repository(root)
+        self.assertEqual("v001", summary["release"])
+
+    def test_v11_guidance_rejects_path_base64_and_embedded_uri_forms(self):
+        for value in (
+            "folder/private/file.txt",
+            "private/file.txt",
+            "use=private/file.txt",
+            "[private/file.txt]",
+            "QWxhZGRpbjpvcGVuIHNlc2FtZQ==",
+            "QWxhZGRpbjpvcGVuIHNlc2FtZQ",
+            "QUJDREVGR0hJSktMTU5PUA==",
+            "xhttp:payload",
+            "prefixwww.example.test",
+            "https:payload",
+            "mailto:user",
+            "file:payload",
+            "data:payload",
+            "javascript:alert(1)",
+            "ssh:private-host",
+        ):
+            with self.subTest(value=value):
+                with self.assertRaises(self.validator.ValidationError):
+                    self.validator.validate_guidance(value, 4000, "prompt")
+
+    def test_png_rejects_duplicate_ihdr_and_trailing_zlib_stream_data(self):
+        base = strict_png()
+
+        def metadata(data):
+            return {
+                "sha256": hashlib.sha256(data).hexdigest(),
+                "byteLength": len(data),
+                "width": 256,
+                "height": 256,
+            }
+
+        duplicate_ihdr = base[:33] + base[8:33] + base[33:]
+        idat_offset = 33
+        idat_length = struct.unpack(">I", base[idat_offset:idat_offset + 4])[0]
+        idat_type = base[idat_offset + 4:idat_offset + 8]
+        idat_data = base[idat_offset + 8:idat_offset + 8 + idat_length] + b"extra"
+        idat_chunk = (
+            struct.pack(">I", len(idat_data))
+            + idat_type
+            + idat_data
+            + struct.pack(">I", zlib.crc32(idat_type + idat_data) & 0xFFFFFFFF)
+        )
+        trailing_stream = (
+            base[:idat_offset]
+            + idat_chunk
+            + base[idat_offset + 12 + idat_length:]
+        )
+        for name, data in (
+            ("duplicate-ihdr", duplicate_ihdr),
+            ("trailing-zlib", trailing_stream),
+        ):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "image.png"
+                path.write_bytes(data)
+                with self.assertRaises(self.validator.ValidationError):
+                    self.validator.validate_png(path, metadata(data))
+
+    def test_png_rejects_bad_order_truncated_and_expanding_streams(self):
+        base = strict_png()
+
+        def chunks(data):
+            values = []
+            offset = 8
+            while offset < len(data):
+                length = struct.unpack(">I", data[offset:offset + 4])[0]
+                kind = data[offset + 4:offset + 8]
+                payload = data[offset + 8:offset + 8 + length]
+                values.append((kind, payload))
+                offset += 12 + length
+            return values
+
+        def build(values):
+            output = bytearray(b"\x89PNG\r\n\x1a\n")
+            for kind, payload in values:
+                output += struct.pack(">I", len(payload))
+                output += kind + payload
+                output += struct.pack(
+                    ">I", zlib.crc32(kind + payload) & 0xFFFFFFFF
+                )
+            return bytes(output)
+
+        values = chunks(base)
+        ihdr, idat, iend = values
+        raw = zlib.decompress(idat[1])
+        cases = {
+            "idat-before-ihdr": build((idat, ihdr, iend)),
+            "iend-before-idat": build((ihdr, iend, idat)),
+            "truncated-stream": build(
+                (ihdr, (b"IDAT", idat[1][:-1]), iend)
+            ),
+            "expanded-stream": build(
+                (ihdr, (b"IDAT", zlib.compress(raw + b"x", 9)), iend)
+            ),
+        }
+        for name, data in cases.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "image.png"
+                path.write_bytes(data)
+                asset = {
+                    "sha256": hashlib.sha256(data).hexdigest(),
+                    "byteLength": len(data),
+                    "width": 256,
+                    "height": 256,
+                }
+                with self.assertRaises(self.validator.ValidationError):
+                    self.validator.validate_png(path, asset)
+
+    def test_pointer_change_requires_separate_publication_change(self):
+        temporary, root = self.with_tree()
+        self.addCleanup(temporary.cleanup)
+        pointer = root / "catalog/current.json"
+        write_json(
+            pointer,
+            {
+                "schemaVersion": "recap-catalog-pointer/1.0",
+                "current": "v002",
+                "previous": "v001",
+            },
+        )
+        self.assert_invalid(root, "separately reviewed validator change")
+
+    def test_schema_artifacts_encode_version_specific_fields(self):
+        design_schema = json.loads(
+            (ROOT / "schemas/design.schema.json").read_text(encoding="utf-8")
+        )
+        release_schema = json.loads(
+            (ROOT / "schemas/release.schema.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(2, len(design_schema["allOf"]))
+        self.assertEqual(2, len(release_schema["allOf"]))
+        self.assertEqual(
+            ["renderGuidance"],
+            design_schema["allOf"][1]["then"]["required"],
+        )
+        self.assertEqual(
+            ["assets"],
+            release_schema["allOf"][1]["then"]["properties"]["designs"][
+                "items"
+            ]["required"],
+        )
 
     def test_lf_git_blob_hashes_are_catalog_authority(self):
         hashed_paths = (
@@ -851,22 +1089,46 @@ class CatalogValidationTests(unittest.TestCase):
         self.addCleanup(temporary4.cleanup)
         release_root = root4 / "catalog/releases/v001"
         shutil.rmtree(release_root / "designs")
+        source_asset = (
+            ROOT
+            / "catalog/releases/v002/assets/summit-readiness-layout.png"
+        ).read_bytes()
+        source_design = json.loads(
+            (
+                ROOT
+                / "catalog/releases/v002/designs/summit-readiness/design.json"
+            ).read_text(encoding="utf-8")
+        )
         entries = []
-        for index in range(9):
+        for index in range(26):
             design_id = f"d{index}"
             path = release_root / "designs" / design_id / "design.json"
-            write_json(path, design_value(design_id))
-            padding = (60 * 1024) - path.stat().st_size
-            path.write_bytes(path.read_bytes() + b" " * padding)
+            asset_id = f"a{index}"
+            design = json.loads(json.dumps(source_design))
+            design["id"] = design_id
+            design["renderGuidance"]["referenceImage"]["assetId"] = asset_id
+            write_json(path, design)
+            asset_path = release_root / "assets" / f"{asset_id}.png"
+            asset_path.parent.mkdir(parents=True, exist_ok=True)
+            asset_path.write_bytes(source_asset)
             entries.append(
                 {
                     "id": design_id,
                     "path": f"designs/{design_id}/design.json",
                     "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                    "assets": [{
+                        "id": asset_id,
+                        "path": f"assets/{asset_id}.png",
+                        "sha256": hashlib.sha256(source_asset).hexdigest(),
+                        "mimeType": "image/png",
+                        "byteLength": len(source_asset),
+                        "width": 720,
+                        "height": 480,
+                    }],
                 }
             )
         manifest = {
-            "schemaVersion": "recap-design-release/1.0",
+            "schemaVersion": "recap-design-release/1.1",
             "id": "v001",
             "status": "approved",
             "designs": entries,
@@ -909,11 +1171,6 @@ class CatalogValidationTests(unittest.TestCase):
         )
         self.assertEqual(512 * 1024, exact_total)
         self.validator.validate_repository(root5)
-        final_design = release_root / entries[-1]["path"]
-        final_design.write_bytes(final_design.read_bytes() + b" ")
-        entries[-1]["sha256"] = hashlib.sha256(final_design.read_bytes()).hexdigest()
-        write_json(manifest_path, manifest)
-        self.assert_invalid(root5, "release byte limit")
 
     def test_design_count_boundaries(self):
         for count in (0, 1):

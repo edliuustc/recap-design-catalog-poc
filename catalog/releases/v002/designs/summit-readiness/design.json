@@ -1,0 +1,94 @@
+{
+  "schemaVersion": "recap-design/1.1",
+  "id": "summit-readiness",
+  "version": "1.0.0",
+  "status": "approved",
+  "priority": 200,
+  "appliesWhen": {
+    "requiredForms": [
+      "sequence",
+      "tasks",
+      "open_questions"
+    ],
+    "minimumUnits": 3,
+    "maximumUnits": 30
+  },
+  "profiles": {
+    "cowork-native": {
+      "rules": [
+        {
+          "kind": "form",
+          "form": "sequence",
+          "title": {
+            "kind": "literal",
+            "value": "Readiness gates"
+          }
+        },
+        {
+          "kind": "form",
+          "form": "tasks",
+          "title": {
+            "kind": "literal",
+            "value": "Recorded actions"
+          }
+        },
+        {
+          "kind": "form",
+          "form": "open_questions",
+          "title": {
+            "kind": "literal",
+            "value": "Open questions"
+          }
+        },
+        {
+          "kind": "remaining",
+          "title": {
+            "kind": "block-title"
+          }
+        }
+      ]
+    },
+    "bizchat-rich-text": {
+      "rules": [
+        {
+          "kind": "form",
+          "form": "sequence",
+          "title": {
+            "kind": "literal",
+            "value": "Readiness gates"
+          }
+        },
+        {
+          "kind": "form",
+          "form": "tasks",
+          "title": {
+            "kind": "literal",
+            "value": "Recorded actions"
+          }
+        },
+        {
+          "kind": "form",
+          "form": "open_questions",
+          "title": {
+            "kind": "literal",
+            "value": "Open questions"
+          }
+        },
+        {
+          "kind": "remaining",
+          "title": {
+            "kind": "block-title"
+          }
+        }
+      ]
+    }
+  },
+  "renderGuidance": {
+    "description": "A concise launch readiness view with one dominant blocker, a vertical prerequisite chain, owner grouped actions, and a compact unresolved items table.",
+    "prompt": "Use the reference image as presentation guidance only. Lead with the current blocker and outcome. Render the prerequisite sequence as the primary visual flow, then show recorded actions grouped by owner and unresolved questions last. Preserve every grounded fact, status, owner, date, evidence reference, and source disclosure exactly. Do not infer completion, approval, dependencies, dates, or additional actions.",
+    "referenceImage": {
+      "assetId": "summit-readiness-layout",
+      "alt": "Reference layout for sequential launch readiness gates"
+    }
+  }
+}

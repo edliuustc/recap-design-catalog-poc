@@ -6,21 +6,24 @@ import math
 import os
 from pathlib import Path, PurePosixPath
 import re
+import struct
 import subprocess
 import sys
+import zlib
 
 
 POINTER_LIMIT = 4 * 1024
 MANIFEST_LIMIT = 32 * 1024
 DESIGN_LIMIT = 64 * 1024
-RELEASE_LIMIT = 512 * 1024
+IMAGE_LIMIT = 192 * 1024
+RELEASE_LIMIT = 4 * 1024 * 1024
 MAX_DEPTH = 8
 EXAMPLE_LIMIT = 128 * 1024
 EXAMPLE_MAX_DEPTH = 16
 SCHEMA_LIMIT = 256 * 1024
 SCHEMA_MAX_DEPTH = 32
 REPOSITORY_FILE_LIMIT = 100
-REPOSITORY_BYTE_LIMIT = 2 * 1024 * 1024
+REPOSITORY_BYTE_LIMIT = 8 * 1024 * 1024
 PROFILES = ("cowork-native", "bizchat-rich-text")
 FORMS = (
     "decision",
@@ -42,6 +45,27 @@ DESIGN_RE = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 VERSION_RE = re.compile(r"^[1-9][0-9]*\.[0-9]+\.[0-9]+$")
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 TITLE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 .,:;()&/+_-]{0,79}$")
+WEB_ADDRESS_RE = re.compile(
+    r"(?:www\.|://|(?:https?|mailto|file|data|javascript|ssh):)",
+    re.IGNORECASE,
+)
+CREDENTIAL_RE = re.compile(
+    r"(?:\bbearer\s+[A-Za-z0-9._~+/\-=]{8,}"
+    r"|\b(?:password|secret|token|api[_-]?key)\s*[:=])",
+    re.IGNORECASE,
+)
+DRIVE_PREFIX_RE = re.compile(r"(?:^|[\s\"'(])[A-Za-z]:", re.IGNORECASE)
+FILE_PATH_RE = re.compile(
+    r"(?:[A-Za-z0-9._-]+/){1,}[A-Za-z0-9._-]+\.[A-Za-z0-9_-]+",
+    re.IGNORECASE,
+)
+BASE64_RE = re.compile(
+    r"(?<![A-Za-z0-9+/=])(?:[A-Za-z0-9+/]{24,}|"
+    r"[A-Za-z0-9+/]{22,}==|[A-Za-z0-9+/]{23,}=)(?![A-Za-z0-9+/=])"
+)
+PATH_PREFIXES = (
+    "skills/", "src/", "source/", "tests/", "catalog/", "references/",
+)
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 GUID_RE = re.compile(
     r"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[1-5][0-9A-Fa-f]{3}-"
@@ -88,11 +112,12 @@ REQUIRED_PATHS = {
 }
 SCHEMA_HASHES = {
     "catalog-pointer.schema.json": "5a0b13bc18d78ef2ff4cb90794a14396c624a6bfc8a6d3208afbd9aa990dda73",
-    "release.schema.json": "95024c935ac254177770d4511046f5a6aa9fe142feda1be42fb8577528647239",
-    "design.schema.json": "2fc6ca0ef3f2fd68323f20d5a7604337cf9e6f07ba66ad12f7e867b30bceaa8f",
+    "release.schema.json": "57ad87d7531168289f48308e81d481583e4206b9737e0f834b9ccf4c7bd431c4",
+    "design.schema.json": "e406099224557eabee68911a975c8d31df75ff77a7b1dda788873732705e5649",
 }
 LF_HASH_MIGRATION_MANIFEST_PATH = "catalog/releases/v001/manifest.json"
 REVIEWED_BOOTSTRAP_COMMIT = "c4213d051263810bbdfa0793d2d8f2192258ed50"
+PUBLISHED_RELEASE = "v001"
 LF_HASH_MIGRATION_BASE_COMMIT = REVIEWED_BOOTSTRAP_COMMIT
 LF_HASH_MIGRATION_DESIGN_PATH = (
     "catalog/releases/v001/designs/status-actions/design.json"
@@ -151,7 +176,8 @@ def validate_safe_string(value):
             "scan",
         )
         require(
-            not (0x202A <= code <= 0x202E or 0x2066 <= code <= 0x2069),
+            code not in {0x202A, 0x202B, 0x202D, 0x202E}
+            and not (0x2066 <= code <= 0x2069),
             "string contains a bidi character",
             "scan",
         )
@@ -223,6 +249,15 @@ def validate_design_path(design_id, value):
     require(value == f"designs/{design_id}/design.json", "invalid design path identity")
 
 
+def validate_asset_path(asset_id, value):
+    require(isinstance(value, str), "asset path must be a string")
+    require("%" not in value and "\\" not in value, "invalid asset path")
+    require(not value.startswith("/") and ":" not in value, "invalid asset path")
+    parts = PurePosixPath(value).parts
+    require("." not in parts and ".." not in parts, "invalid asset path")
+    require(value == f"assets/{asset_id}.png", "invalid asset path identity")
+
+
 def validate_pointer_shape(pointer):
     exact_keys(pointer, ("schemaVersion", "current", "previous"), "pointer")
     require(
@@ -240,8 +275,9 @@ def validate_pointer_shape(pointer):
 
 def validate_manifest_shape(manifest):
     exact_keys(manifest, ("schemaVersion", "id", "status", "designs"), "manifest")
+    schema = manifest["schemaVersion"]
     require(
-        manifest["schemaVersion"] == "recap-design-release/1.0",
+        schema in {"recap-design-release/1.0", "recap-design-release/1.1"},
         "unsupported release schema",
         "schema",
     )
@@ -250,8 +286,14 @@ def validate_manifest_shape(manifest):
     designs = manifest["designs"]
     require(isinstance(designs, list) and 1 <= len(designs) <= 30, "invalid design count")
     seen = set()
+    asset_paths = set()
     for entry in designs:
-        exact_keys(entry, ("id", "path", "sha256"), "manifest design")
+        expected = (
+            ("id", "path", "sha256", "assets")
+            if schema == "recap-design-release/1.1"
+            else ("id", "path", "sha256")
+        )
+        exact_keys(entry, expected, "manifest design")
         validate_design_id(entry["id"])
         require(entry["id"] not in seen, "duplicate design id")
         seen.add(entry["id"])
@@ -260,6 +302,45 @@ def validate_manifest_shape(manifest):
             isinstance(entry["sha256"], str) and SHA_RE.fullmatch(entry["sha256"]),
             "invalid design hash",
         )
+        if schema == "recap-design-release/1.1":
+            assets = entry["assets"]
+            require(
+                isinstance(assets, list) and len(assets) <= 1,
+                "invalid manifest assets",
+            )
+            asset_ids = set()
+            for asset in assets:
+                exact_keys(
+                    asset,
+                    ("id", "path", "sha256", "mimeType", "byteLength", "width", "height"),
+                    "manifest asset",
+                )
+                validate_design_id(asset["id"])
+                require(asset["id"] not in asset_ids, "duplicate asset id")
+                asset_ids.add(asset["id"])
+                validate_asset_path(asset["id"], asset["path"])
+                require(asset["path"] not in asset_paths, "duplicate asset path")
+                asset_paths.add(asset["path"])
+                require(
+                    isinstance(asset["sha256"], str) and SHA_RE.fullmatch(asset["sha256"]),
+                    "invalid asset hash",
+                )
+                require(asset["mimeType"] == "image/png", "invalid asset MIME type")
+                require(
+                    type(asset["byteLength"]) is int
+                    and 1 <= asset["byteLength"] <= IMAGE_LIMIT,
+                    "invalid asset byte length",
+                )
+                width, height = asset["width"], asset["height"]
+                require(
+                    type(width) is int
+                    and type(height) is int
+                    and 256 <= width <= 2048
+                    and 256 <= height <= 2048
+                    and width * height <= 3_145_728,
+                    "invalid asset dimensions",
+                )
+    return schema
 
 
 def validate_title(title):
@@ -280,22 +361,48 @@ def validate_title(title):
     )
 
 
+def validate_guidance(value, maximum_bytes, label):
+    require(isinstance(value, str), f"{label} must be a string")
+    trimmed = value.strip()
+    lowered = trimmed.lower()
+    require(bool(trimmed), f"{label} must not be blank")
+    require(len(value.encode("utf-8")) <= maximum_bytes, f"{label} is too large")
+    validate_safe_string(value)
+    require("```" not in trimmed, f"{label} contains a code fence")
+    require(not WEB_ADDRESS_RE.search(trimmed), f"{label} contains a web address")
+    require(not CREDENTIAL_RE.search(trimmed), f"{label} contains a credential")
+    require("\\" not in trimmed, f"{label} contains a path")
+    require(not DRIVE_PREFIX_RE.search(trimmed), f"{label} contains a drive path")
+    require(not FILE_PATH_RE.search(trimmed), f"{label} contains a file path")
+    require(not BASE64_RE.search(trimmed), f"{label} contains base64-shaped content")
+    require(
+        not trimmed.startswith(("/", "./", "../")),
+        f"{label} contains an absolute or relative path",
+    )
+    require(
+        not any(prefix in lowered for prefix in PATH_PREFIXES),
+        f"{label} contains a repository path",
+    )
+    return trimmed
+
+
 def validate_design_shape(design):
+    schema = design.get("schemaVersion")
     exact_keys(
         design,
         (
-            "schemaVersion",
-            "id",
-            "version",
-            "status",
-            "priority",
-            "appliesWhen",
-            "profiles",
+            "schemaVersion", "id", "version", "status", "priority",
+            "appliesWhen", "profiles", "renderGuidance",
+        )
+        if schema == "recap-design/1.1"
+        else (
+            "schemaVersion", "id", "version", "status", "priority",
+            "appliesWhen", "profiles",
         ),
         "design",
     )
     require(
-        design["schemaVersion"] == "recap-design/1.0",
+        schema in {"recap-design/1.0", "recap-design/1.1"},
         "unsupported design schema",
         "schema",
     )
@@ -357,6 +464,27 @@ def validate_design_shape(design):
                 fail("invalid rule kind")
             validate_title(rule["title"])
         require(remaining_count == 1, "profile must have one remaining rule")
+    reference_asset_id = None
+    if schema == "recap-design/1.1":
+        guidance = design["renderGuidance"]
+        require(isinstance(guidance, dict), "renderGuidance must be an object")
+        has_image = "referenceImage" in guidance
+        exact_keys(
+            guidance,
+            ("description", "prompt", "referenceImage")
+            if has_image
+            else ("description", "prompt"),
+            "renderGuidance",
+        )
+        validate_guidance(guidance["description"], 4000, "description")
+        validate_guidance(guidance["prompt"], 4000, "prompt")
+        if has_image:
+            image = guidance["referenceImage"]
+            exact_keys(image, ("assetId", "alt"), "referenceImage")
+            validate_design_id(image["assetId"])
+            validate_guidance(image["alt"], 240, "image alt")
+            reference_asset_id = image["assetId"]
+    return schema, reference_asset_id
 
 
 def validate_request(request):
@@ -510,6 +638,90 @@ def validate_publication_probes(design):
             )
 
 
+def validate_png(path, asset):
+    data = Path(path).read_bytes()
+    require(len(data) == asset["byteLength"], "asset byte length mismatch")
+    require(len(data) <= IMAGE_LIMIT, "asset exceeds image limit", "limit")
+    require(hashlib.sha256(data).hexdigest() == asset["sha256"], "asset hash mismatch")
+    require(data.startswith(b"\x89PNG\r\n\x1a\n"), "invalid PNG signature")
+    offset = 8
+    chunks = []
+    idat = bytearray()
+    state = "before"
+    while offset < len(data):
+        require(offset + 12 <= len(data), "truncated PNG chunk")
+        length = struct.unpack(">I", data[offset:offset + 4])[0]
+        kind = data[offset + 4:offset + 8]
+        start = offset + 8
+        end = start + length
+        require(end + 4 <= len(data), "truncated PNG data")
+        payload = data[start:end]
+        expected_crc = struct.unpack(">I", data[end:end + 4])[0]
+        require(
+            zlib.crc32(kind + payload) & 0xFFFFFFFF == expected_crc,
+            "PNG CRC mismatch",
+        )
+        if kind == b"IHDR":
+            require(state == "before" and not chunks and length == 13, "invalid PNG IHDR")
+        elif kind == b"IDAT":
+            require(state in {"before-idat", "idat"} and length > 0, "invalid PNG IDAT sequence")
+            state = "idat"
+            idat.extend(payload)
+        elif kind == b"IEND":
+            require(state == "idat" and length == 0, "invalid PNG IEND")
+            state = "done"
+        else:
+            fail("unsupported PNG chunk")
+        chunks.append((kind, payload))
+        if kind == b"IHDR":
+            state = "before-idat"
+        offset = end + 4
+        if kind == b"IEND":
+            break
+    require(offset == len(data), "PNG trailing data")
+    require(
+        len(chunks) >= 3
+        and chunks[0][0] == b"IHDR"
+        and chunks[-1] == (b"IEND", b"")
+        and state == "done",
+        "invalid PNG chunk order",
+    )
+    ihdr = chunks[0][1]
+    require(len(ihdr) == 13, "invalid PNG IHDR")
+    width, height, depth, color, compression, filtering, interlace = struct.unpack(
+        ">IIBBBBB", ihdr
+    )
+    require(
+        width == asset["width"]
+        and height == asset["height"]
+        and depth == 8
+        and color in {2, 6}
+        and compression == 0
+        and filtering == 0
+        and interlace == 0,
+        "unsupported PNG profile",
+    )
+    pixel_bytes = 3 if color == 2 else 4
+    stride = width * pixel_bytes + 1
+    try:
+        expected_length = stride * height
+        decompressor = zlib.decompressobj()
+        raw = decompressor.decompress(bytes(idat), expected_length + 1)
+    except zlib.error:
+        fail("invalid PNG compression")
+    require(
+        decompressor.eof
+        and not decompressor.unused_data
+        and not decompressor.unconsumed_tail,
+        "invalid PNG compressed stream",
+    )
+    require(len(raw) == expected_length, "invalid PNG scanline length")
+    require(
+        all(raw[index * stride] <= 4 for index in range(height)),
+        "invalid PNG filter",
+    )
+
+
 def is_allowed_path(relative):
     if relative in REQUIRED_PATHS:
         return True
@@ -518,6 +730,12 @@ def is_allowed_path(relative):
     if re.fullmatch(r"schemas/[^/]+\.schema\.json", relative):
         return True
     if re.fullmatch(r"catalog/releases/v(?!000)[0-9]{3}/manifest\.json", relative):
+        return True
+    if re.fullmatch(
+        r"catalog/releases/v(?!000)[0-9]{3}/assets/"
+        r"[a-z][a-z0-9-]{0,63}\.png",
+        relative,
+    ):
         return True
     return bool(
         re.fullmatch(
@@ -543,6 +761,7 @@ def is_allowed_directory(relative):
     return bool(
         re.fullmatch(r"catalog/releases/v(?!000)[0-9]{3}", relative)
         or re.fullmatch(r"catalog/releases/v(?!000)[0-9]{3}/designs", relative)
+        or re.fullmatch(r"catalog/releases/v(?!000)[0-9]{3}/assets", relative)
         or re.fullmatch(
             r"catalog/releases/v(?!000)[0-9]{3}/designs/"
             r"[a-z][a-z0-9-]{0,63}",
@@ -599,6 +818,8 @@ def repository_files(root):
 
 def scan_text_files(files):
     for relative, path in files:
+        if path.suffix.lower() == ".png":
+            continue
         try:
             text = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
@@ -873,6 +1094,11 @@ def _validate_repository(root, base_ref=None):
             load_json(path, *policy)
     pointer = load_json(root / "catalog/current.json", POINTER_LIMIT)
     validate_pointer_shape(pointer)
+    require(
+        pointer["current"] == PUBLISHED_RELEASE,
+        "catalog pointer publication requires a separately reviewed validator change",
+        "publication",
+    )
     release_summaries = {}
     releases_root = root / "catalog/releases"
     release_directories = sorted(path for path in releases_root.iterdir() if path.is_dir())
@@ -882,7 +1108,7 @@ def _validate_repository(root, base_ref=None):
         validate_release_id(release_id)
         manifest_path = release_directory / "manifest.json"
         manifest = load_json(manifest_path, MANIFEST_LIMIT)
-        validate_manifest_shape(manifest)
+        manifest_schema = validate_manifest_shape(manifest)
         require(manifest["id"] == release_id, "release identity mismatch")
         total_bytes = manifest_path.stat().st_size
         designs = []
@@ -896,6 +1122,25 @@ def _validate_repository(root, base_ref=None):
             actual_design_paths == expected_design_paths,
             "orphan or missing design file",
         )
+        expected_asset_paths = {
+            asset["path"]
+            for entry in manifest["designs"]
+            for asset in entry.get("assets", [])
+        }
+        assets_root = release_directory / "assets"
+        actual_asset_paths = (
+            {
+                path.relative_to(release_directory).as_posix()
+                for path in assets_root.rglob("*.png")
+                if path.is_file() and not path.is_symlink()
+            }
+            if assets_root.exists()
+            else set()
+        )
+        require(
+            actual_asset_paths == expected_asset_paths,
+            "orphan or missing asset file",
+        )
         for entry in manifest["designs"]:
             design_path = release_directory / entry["path"]
             require(
@@ -907,8 +1152,38 @@ def _validate_repository(root, base_ref=None):
             digest = hashlib.sha256(design_path.read_bytes()).hexdigest()
             require(digest == entry["sha256"], "design hash mismatch")
             design = load_json(design_path, DESIGN_LIMIT)
-            validate_design_shape(design)
+            design_schema, reference_asset_id = validate_design_shape(design)
+            require(
+                (manifest_schema, design_schema)
+                in {
+                    ("recap-design-release/1.0", "recap-design/1.0"),
+                    ("recap-design-release/1.1", "recap-design/1.1"),
+                },
+                "release and design schema mismatch",
+            )
             require(design["id"] == entry["id"], "design identity mismatch")
+            assets = entry.get("assets", [])
+            require(
+                (not assets and reference_asset_id is None)
+                or (
+                    len(assets) == 1
+                    and reference_asset_id == assets[0]["id"]
+                ),
+                "design asset reference mismatch",
+            )
+            for asset in assets:
+                asset_path = release_directory / asset["path"]
+                require(
+                    asset_path.is_file() and not asset_path.is_symlink(),
+                    "asset path missing",
+                )
+                total_bytes += asset_path.stat().st_size
+                require(
+                    total_bytes <= RELEASE_LIMIT,
+                    "release byte limit exceeded",
+                    "limit",
+                )
+                validate_png(asset_path, asset)
             validate_publication_probes(design)
             designs.append(design)
         require(

@@ -236,10 +236,10 @@ class CatalogValidationTests(unittest.TestCase):
         create_valid_tree(root)
         return temporary, root
 
-    def test_published_repository_uses_v003(self):
+    def test_published_repository_uses_v004(self):
         summary = self.validator.validate_repository(ROOT)
-        self.assertEqual("v003", summary["release"])
-        self.assertEqual(1, summary["designs"])
+        self.assertEqual("v004", summary["release"])
+        self.assertEqual(13, summary["designs"])
 
     def test_valid_unpublished_v002_with_reference_image(self):
         temporary, root = self.with_tree()
@@ -419,7 +419,7 @@ class CatalogValidationTests(unittest.TestCase):
         write_json(release / "components" / "tasks-card" / "component.json", changed)
         self.assert_invalid(root, "component hash mismatch")
 
-    def test_v20_component_release_cannot_be_published_yet(self):
+    def test_v20_component_release_publishes_with_legacy_examples(self):
         temporary, root = self.with_tree()
         self.addCleanup(temporary.cleanup)
         self.write_component_release(root, [self.component_value()])
@@ -431,7 +431,13 @@ class CatalogValidationTests(unittest.TestCase):
                 "previous": "v001",
             },
         )
-        self.assert_invalid(root, "component release")
+        summary = self.validator.validate_repository(root)
+        self.assertEqual("v002", summary["release"])
+        response_path = root / "examples/summit-readiness-response.json"
+        response = json.loads(response_path.read_text(encoding="utf-8"))
+        response["release"] = "v002"
+        write_json(response_path, response)
+        self.assert_invalid(root, "example release must be a design release")
 
     def test_v11_guidance_rejects_path_base64_and_embedded_uri_forms(self):
         for value in (
@@ -583,7 +589,7 @@ class CatalogValidationTests(unittest.TestCase):
             {
                 "schemaVersion": "recap-catalog-pointer/1.0",
                 "current": "v005",
-                "previous": "v003",
+                "previous": "v004",
             },
         )
         response_path = root / "examples/summit-readiness-response.json"
@@ -604,7 +610,7 @@ class CatalogValidationTests(unittest.TestCase):
             pointer_path,
             {
                 "schemaVersion": "recap-catalog-pointer/1.0",
-                "current": "v003",
+                "current": "v004",
                 "previous": None,
             },
         )

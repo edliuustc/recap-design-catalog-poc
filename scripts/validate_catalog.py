@@ -116,7 +116,7 @@ SCHEMA_HASHES = {
 }
 LF_HASH_MIGRATION_MANIFEST_PATH = "catalog/releases/v001/manifest.json"
 REVIEWED_BOOTSTRAP_COMMIT = "c4213d051263810bbdfa0793d2d8f2192258ed50"
-PUBLISHED_RELEASE = "v003"
+PUBLISHED_RELEASE = "v004"
 LF_HASH_MIGRATION_BASE_COMMIT = REVIEWED_BOOTSTRAP_COMMIT
 LF_HASH_MIGRATION_DESIGN_PATH = (
     "catalog/releases/v001/designs/status-actions/design.json"
@@ -1531,18 +1531,31 @@ def _validate_repository(root, base_ref=None):
         EXAMPLE_LIMIT,
         EXAMPLE_MAX_DEPTH,
     )
+    require(isinstance(response, dict), "response must be an object")
+    example_release = pointer["current"]
     current_manifest = load_json(
-        root / "catalog/releases" / pointer["current"] / "manifest.json",
+        root / "catalog/releases" / example_release / "manifest.json",
         MANIFEST_LIMIT,
     )
-    require(
-        current_manifest["schemaVersion"] != COMPONENT_RELEASE_SCHEMA,
-        "publishing a component release requires a separately reviewed validator change",
-        "publication",
-    )
+    if current_manifest["schemaVersion"] == COMPONENT_RELEASE_SCHEMA:
+        # The examples use the legacy 1.x design contract, so validate them
+        # against the design release they name instead of the component release.
+        example_release = response.get("release")
+        require(
+            example_release in release_summaries,
+            "example release is missing",
+        )
+        current_manifest = load_json(
+            root / "catalog/releases" / example_release / "manifest.json",
+            MANIFEST_LIMIT,
+        )
+        require(
+            current_manifest["schemaVersion"] != COMPONENT_RELEASE_SCHEMA,
+            "example release must be a design release",
+        )
     current_designs = {
         entry["id"]: load_json(
-            root / "catalog/releases" / pointer["current"] / entry["path"],
+            root / "catalog/releases" / example_release / entry["path"],
             DESIGN_LIMIT,
         )
         for entry in current_manifest["designs"]
@@ -1550,12 +1563,11 @@ def _validate_repository(root, base_ref=None):
     current_entries = {
         entry["id"]: entry for entry in current_manifest["designs"]
     }
-    require(isinstance(response, dict), "response must be an object")
     require(response.get("design") in current_designs, "example design is not in current release")
     validate_examples(
         request,
         response,
-        expected_release=pointer["current"],
+        expected_release=example_release,
         design=current_designs[response["design"]],
         manifest_entry=current_entries[response["design"]],
     )

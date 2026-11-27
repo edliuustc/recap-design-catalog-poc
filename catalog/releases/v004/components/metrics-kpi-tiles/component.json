@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "recap-component/2.0",
+  "id": "metrics-kpi-tiles",
+  "version": "1.0.0",
+  "status": "approved",
+  "form": "metrics",
+  "renderGuidance": {
+    "description": "KPI Tiles. Each measure is a dark tile with the name in small caps, a very large current value with its unit, and a colored delta pill: green when the change moves in the desired direction, red when it moves against it, grey for neutral. A thin amber target line and TARGET GAP label appear only when a target exists. Signature marker for testing: each measure starts with 📊 and the delta is shown as 🔼 or 🔽 with a 🟢 or 🔴 judgement dot.",
+    "prompt": "Render each measure as a short block: a first line with 📊 and the measure name in bold, a second line with the current value and unit in bold large text, then the change with 🔼 for an increase or 🔽 for a decrease and a 🟢 dot when that change matches the desired direction or 🔴 when it does not, nothing for neutral. Then previous value and labels in small text, then the target and gap only when a target is supplied, then the basis in italics. Use the computed numbers exactly. Style only the blocks of this form. Keep every block, title, order, fact, status, owner, date, number and evidence reference exactly as supplied. Never invent content, never add or drop items, and never show or cite the reference image.",
+    "referenceImage": {
+      "assetId": "metrics-kpi-tiles",
+      "alt": "Dark dashboard tiles with a huge current value, colored delta pill, amber target line and a small four-bar history chart."
+    }
+  }
+}

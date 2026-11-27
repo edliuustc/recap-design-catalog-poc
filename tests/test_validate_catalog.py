@@ -191,6 +191,8 @@ def create_valid_tree(root):
         "catalog-pointer.schema.json",
         "release.schema.json",
         "design.schema.json",
+        "component-release.schema.json",
+        "component.schema.json",
     ):
         destination = root / "schemas" / name
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -311,6 +313,125 @@ class CatalogValidationTests(unittest.TestCase):
         )
         summary = self.validator.validate_repository(root)
         self.assertEqual("v001", summary["release"])
+
+    def write_component_release(self, root, components, image=None):
+        release = root / "catalog" / "releases" / "v002"
+        entries = []
+        for component in components:
+            path = release / "components" / component["id"] / "component.json"
+            write_json(path, component)
+            entry = {
+                "id": component["id"],
+                "path": f"components/{component['id']}/component.json",
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                "assets": [],
+            }
+            reference = component["renderGuidance"].get("referenceImage")
+            if reference and image is not None:
+                asset_path = release / "assets" / f"{reference['assetId']}.png"
+                asset_path.parent.mkdir(parents=True, exist_ok=True)
+                asset_path.write_bytes(image)
+                entry["assets"].append({
+                    "id": reference["assetId"],
+                    "path": f"assets/{reference['assetId']}.png",
+                    "sha256": hashlib.sha256(image).hexdigest(),
+                    "mimeType": "image/png",
+                    "byteLength": len(image),
+                    "width": 256,
+                    "height": 256,
+                })
+            entries.append(entry)
+        manifest = {
+            "schemaVersion": "recap-design-release/2.0",
+            "id": "v002",
+            "status": "approved",
+            "components": entries,
+        }
+        write_json(release / "manifest.json", manifest)
+        return release, manifest
+
+    def component_value(self, component_id="tasks-card", form="tasks"):
+        return {
+            "schemaVersion": "recap-component/2.0",
+            "id": component_id,
+            "version": "1.0.0",
+            "status": "approved",
+            "form": form,
+            "renderGuidance": {
+                "description": "A compact action list.",
+                "prompt": "Show each grounded action as one row.",
+            },
+        }
+
+    def test_valid_unpublished_v20_component_release(self):
+        temporary, root = self.with_tree()
+        self.addCleanup(temporary.cleanup)
+        tasks = self.component_value()
+        tasks["renderGuidance"]["referenceImage"] = {
+            "assetId": "tasks-card-layout",
+            "alt": "Reference layout for an action list",
+        }
+        self.write_component_release(
+            root,
+            [tasks, self.component_value("decision-card", "decision")],
+            image=strict_png(),
+        )
+        summary = self.validator.validate_repository(root)
+        self.assertEqual("v001", summary["release"])
+
+    def test_v20_component_release_rejects_invalid_components(self):
+        cases = []
+        duplicate_form = [
+            self.component_value("tasks-a"),
+            self.component_value("tasks-b"),
+        ]
+        cases.append((duplicate_form, "duplicate component form"))
+        unknown_form = [self.component_value(form="timeline")]
+        cases.append((unknown_form, "invalid component form"))
+        template_fields = self.component_value()
+        template_fields["priority"] = 100
+        cases.append(([template_fields], "component keys are not closed"))
+        missing_image = self.component_value()
+        missing_image["renderGuidance"]["referenceImage"] = {
+            "assetId": "tasks-card-layout",
+            "alt": "Reference layout",
+        }
+        cases.append(([missing_image], "asset reference mismatch"))
+        for components, message in cases:
+            with self.subTest(message=message):
+                temporary, root = self.with_tree()
+                self.addCleanup(temporary.cleanup)
+                self.write_component_release(root, components)
+                self.assert_invalid(root, message)
+
+    def test_v20_component_release_rejects_orphans_and_hash_drift(self):
+        temporary, root = self.with_tree()
+        self.addCleanup(temporary.cleanup)
+        release, _ = self.write_component_release(root, [self.component_value()])
+        write_json(
+            release / "components" / "extra" / "component.json",
+            self.component_value("extra", "decision"),
+        )
+        self.assert_invalid(root, "orphan or missing component file")
+        shutil.rmtree(release / "components" / "extra")
+        changed = self.component_value()
+        changed["renderGuidance"]["prompt"] = "Changed after hashing."
+        write_json(release / "components" / "tasks-card" / "component.json", changed)
+        self.assert_invalid(root, "component hash mismatch")
+
+    def test_v20_component_release_cannot_be_published_yet(self):
+        temporary, root = self.with_tree()
+        self.addCleanup(temporary.cleanup)
+        self.write_component_release(root, [self.component_value()])
+        write_json(
+            root / "catalog" / "current.json",
+            {
+                "schemaVersion": "recap-catalog-pointer/1.0",
+                "current": "v002",
+                "previous": "v001",
+            },
+        )
+        self.assert_invalid(root, "component release")
 
     def test_v11_guidance_rejects_path_base64_and_embedded_uri_forms(self):
         for value in (
@@ -450,27 +571,27 @@ class CatalogValidationTests(unittest.TestCase):
         self._git(root, "commit", "--allow-empty", "-m", "tip")
         shutil.copytree(
             root / "catalog/releases/v003",
-            root / "catalog/releases/v004",
+            root / "catalog/releases/v005",
         )
-        manifest_path = root / "catalog/releases/v004/manifest.json"
+        manifest_path = root / "catalog/releases/v005/manifest.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        manifest["id"] = "v004"
+        manifest["id"] = "v005"
         write_json(manifest_path, manifest)
         pointer_path = root / "catalog/current.json"
         write_json(
             pointer_path,
             {
                 "schemaVersion": "recap-catalog-pointer/1.0",
-                "current": "v004",
+                "current": "v005",
                 "previous": "v003",
             },
         )
         response_path = root / "examples/summit-readiness-response.json"
         response = json.loads(response_path.read_text(encoding="utf-8"))
-        response["release"] = "v004"
+        response["release"] = "v005"
         write_json(response_path, response)
         summary = self.validator.validate_repository(root, base_ref="HEAD")
-        self.assertEqual("v004", summary["release"])
+        self.assertEqual("v005", summary["release"])
         invalid = json.loads(pointer_path.read_text(encoding="utf-8"))
         invalid["previous"] = "v001"
         write_json(pointer_path, invalid)
@@ -612,6 +733,8 @@ class CatalogValidationTests(unittest.TestCase):
             "schemas/catalog-pointer.schema.json",
             "schemas/release.schema.json",
             "schemas/design.schema.json",
+            "schemas/component-release.schema.json",
+            "schemas/component.schema.json",
         )
         manifest_path = "catalog/releases/v001/manifest.json"
         validator_path = "scripts/validate_catalog.py"
@@ -661,6 +784,12 @@ class CatalogValidationTests(unittest.TestCase):
                 ).hexdigest(),
                 "design.schema.json": hashlib.sha256(
                     staged_bytes_by_path["schemas/design.schema.json"]
+                ).hexdigest(),
+                "component-release.schema.json": hashlib.sha256(
+                    staged_bytes_by_path["schemas/component-release.schema.json"]
+                ).hexdigest(),
+                "component.schema.json": hashlib.sha256(
+                    staged_bytes_by_path["schemas/component.schema.json"]
                 ).hexdigest(),
             },
             schema_hashes,

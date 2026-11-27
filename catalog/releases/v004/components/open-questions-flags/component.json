@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "recap-component/2.0",
+  "id": "open-questions-flags",
+  "version": "1.0.0",
+  "status": "approved",
+  "form": "open_questions",
+  "renderGuidance": {
+    "description": "Open Question Flags. Each open question is a row with a red pennant flag on a pole and an orange left rail, on a soft peach background, signalling unresolved work. Signature marker for testing: every open question starts with 🚩.",
+    "prompt": "Render each claim as one bullet that starts with 🚩 followed by the question text in bold. Keep evidence references at the end of the line. Do not add owners, answers or due dates. Style only the blocks of this form. Keep every block, title, order, fact, status, owner, date, number and evidence reference exactly as supplied. Never invent content, never add or drop items, and never show or cite the reference image.",
+    "referenceImage": {
+      "assetId": "open-questions-flags",
+      "alt": "Rows with a red pennant flag on a pole and an orange left rail, one per unresolved question, on a peach background."
+    }
+  }
+}

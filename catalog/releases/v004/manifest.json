@@ -1,0 +1,215 @@
+{
+  "schemaVersion": "recap-design-release/2.0",
+  "id": "v004",
+  "status": "approved",
+  "components": [
+    {
+      "id": "decision-verdict-ledger",
+      "path": "components/decision-verdict-ledger/component.json",
+      "sha256": "4760f9c650ccb54ac9ebff3c257c99d07a4880a067518baf38710820f5740596",
+      "assets": [
+        {
+          "id": "decision-verdict-ledger",
+          "path": "assets/decision-verdict-ledger.png",
+          "sha256": "a7388f86d1d2d4b0d9948eb138afe3eae94ec229748ab170a4aeb6844e8c88d1",
+          "mimeType": "image/png",
+          "byteLength": 18858,
+          "width": 960,
+          "height": 600
+        }
+      ]
+    },
+    {
+      "id": "comparison-option-scorecards",
+      "path": "components/comparison-option-scorecards/component.json",
+      "sha256": "70f79a5f2155f6c8b0f63f25de321e6485e603d634ad02ebbf9f70c093c89ad2",
+      "assets": [
+        {
+          "id": "comparison-option-scorecards",
+          "path": "assets/comparison-option-scorecards.png",
+          "sha256": "48f9c8a5e281be24d0b72a1136402f09c39163dc55a6db10b156d35e4c970056",
+          "mimeType": "image/png",
+          "byteLength": 21535,
+          "width": 960,
+          "height": 600
+        }
+      ]
+    },
+    {
+      "id": "ideation-sticky-wall",
+      "path": "components/ideation-sticky-wall/component.json",
+      "sha256": "325933037fd7390d145f8c79954e7b7f692938d709189f599b813e9b2f67850c",
+      "assets": [
+        {
+          "id": "ideation-sticky-wall",
+          "path": "assets/ideation-sticky-wall.png",
+          "sha256": "a373d113f882e38371d054d2acd92989fc3af7955b4b446d3df8d6dd72b2db4e",
+          "mimeType": "image/png",
+          "byteLength": 14479,
+          "width": 960,
+          "height": 600
+        }
+      ]
+    },
+    {
+      "id": "sequence-metro-line",
+      "path": "components/sequence-metro-line/component.json",
+      "sha256": "a7ac17f6ee75751523467cac42ed30c74d6699081e3a0acc467ed5693df75505",
+      "assets": [
+        {
+          "id": "sequence-metro-line",
+          "path": "assets/sequence-metro-line.png",
+          "sha256": "acec8dc9f50ee80f8c1730e8047d76e8323289cc2369a27bcf77731ae28a335b",
+          "mimeType": "image/png",
+          "byteLength": 13840,
+          "width": 960,
+          "height": 600
+        }
+      ]
+    },
+    {
+      "id": "tasks-owner-swimlanes",
+      "path": "components/tasks-owner-swimlanes/component.json",
+      "sha256": "e2ba1644f0cb2433b4ae3f81cdaf1fd552bb1f70000da209112b484b1a21d806",
+      "assets": [
+        {
+          "id": "tasks-owner-swimlanes",
+          "path": "assets/tasks-owner-swimlanes.png",
+          "sha256": "ae59831bf327811a44bbd0e55a93ebcd9a703e1b1b7c76ef0a7e7f68e1e3e93f",
+          "mimeType": "image/png",
+          "byteLength": 16104,
+          "width": 960,
+          "height": 600
+        }
+      ]
+    },
+    {
+      "id": "status-traffic-lights",
+      "path": "components/status-traffic-lights/component.json",
+      "sha256": "0cf2e85b8bd9a33ed6bd123b9f7fcdf59a7638cb3283e9c240700dadd5879355",
+      "assets": [
+        {
+          "id": "status-traffic-lights",
+          "path": "assets/status-traffic-lights.png",
+          "sha256": "d8141c90faaa724b69c82d0d0b3a09377137edb03aa1955f45b0091bcc70ee1c",
+          "mimeType": "image/png",
+          "byteLength": 20086,
+          "width": 960,
+          "height": 600
+        }
+      ]
+    },
+    {
+      "id": "set-tile-grid",
+      "path": "components/set-tile-grid/component.json",
+      "sha256": "514f6c9a95629568c0d903109df410ba25858947f59de321a8000c30d9e90c1d",
+      "assets": [
+        {
+          "id": "set-tile-grid",
+          "path": "assets/set-tile-grid.png",
+          "sha256": "c37747c2deaabd7986d15b5e2646ffabfbc1a9c1de3c5f3b9da9f71c7d948e69",
+          "mimeType": "image/png",
+          "byteLength": 12454,
+          "width": 960,
+          "height": 600
+        }
+      ]
+    },
+    {
+      "id": "findings-research-board",
+      "path": "components/findings-research-board/component.json",
+      "sha256": "6bc88a16621d4f4d941fef1011f15e0987cb36de28f4bc821ed0b7cea56e0247",
+      "assets": [
+        {
+          "id": "findings-research-board",
+          "path": "assets/findings-research-board.png",
+          "sha256": "bfddfac1c43625e5c458c1032ab6805e007d51ce8178808e335ec861936edb96",
+          "mimeType": "image/png",
+          "byteLength": 16136,
+          "width": 960,
+          "height": 600
+        }
+      ]
+    },
+    {
+      "id": "metrics-kpi-tiles",
+      "path": "components/metrics-kpi-tiles/component.json",
+      "sha256": "5d1e411c9f576b4c6be1cc831bed6427fba8b6466e0c5adb1d75fe3962b7f98e",
+      "assets": [
+        {
+          "id": "metrics-kpi-tiles",
+          "path": "assets/metrics-kpi-tiles.png",
+          "sha256": "8c131a2b3d99990be389f70553712ffa7873c4ca50f638b66dcc1da146bc95a5",
+          "mimeType": "image/png",
+          "byteLength": 14987,
+          "width": 960,
+          "height": 600
+        }
+      ]
+    },
+    {
+      "id": "route-arrow-ribbons",
+      "path": "components/route-arrow-ribbons/component.json",
+      "sha256": "2698d11fd787598a62ef4b7e19b434a399f715c071c8f3edc46431d716a0df2d",
+      "assets": [
+        {
+          "id": "route-arrow-ribbons",
+          "path": "assets/route-arrow-ribbons.png",
+          "sha256": "db89a676e4e444098ef5e8045ed77c9431a35a7b692b70dd65e14f722103d161",
+          "mimeType": "image/png",
+          "byteLength": 11922,
+          "width": 960,
+          "height": 600
+        }
+      ]
+    },
+    {
+      "id": "qa-chat-bubbles",
+      "path": "components/qa-chat-bubbles/component.json",
+      "sha256": "5024d123509b31ad2b8ee1e55f8b13011eee0b63c6c2216f3d11af84aad052db",
+      "assets": [
+        {
+          "id": "qa-chat-bubbles",
+          "path": "assets/qa-chat-bubbles.png",
+          "sha256": "843c1e58d38b1ecfb6e616a4cf0d238cb8f2a7a20ade26b8e37e916cebfcc05a",
+          "mimeType": "image/png",
+          "byteLength": 13980,
+          "width": 960,
+          "height": 600
+        }
+      ]
+    },
+    {
+      "id": "open-questions-flags",
+      "path": "components/open-questions-flags/component.json",
+      "sha256": "ab16fa85e6a2807b39533dc45a4911145165c671a5af9ca2df368f2e021c5f2d",
+      "assets": [
+        {
+          "id": "open-questions-flags",
+          "path": "assets/open-questions-flags.png",
+          "sha256": "1f05b157fb7ef6edc2a277be9df47026ba462af3367dbc7ba332257786abd17d",
+          "mimeType": "image/png",
+          "byteLength": 11170,
+          "width": 960,
+          "height": 600
+        }
+      ]
+    },
+    {
+      "id": "points-numbered-rail",
+      "path": "components/points-numbered-rail/component.json",
+      "sha256": "d3381f021d40f14315d75da2490d2b0ff5033886d619f36a2f8f8a9588fd3430",
+      "assets": [
+        {
+          "id": "points-numbered-rail",
+          "path": "assets/points-numbered-rail.png",
+          "sha256": "ea1830662f27e057b33b73586a47d0f3d0710817e810b1a4afd4f59bac1da712",
+          "mimeType": "image/png",
+          "byteLength": 13652,
+          "width": 960,
+          "height": 600
+        }
+      ]
+    }
+  ]
+}

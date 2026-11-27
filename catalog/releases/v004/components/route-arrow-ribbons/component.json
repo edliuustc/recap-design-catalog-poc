@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "recap-component/2.0",
+  "id": "route-arrow-ribbons",
+  "version": "1.0.0",
+  "status": "approved",
+  "form": "route",
+  "renderGuidance": {
+    "description": "Arrow Ribbons. Each relation is a solid green from pill, a wide arrow ribbon and an outlined to pill, with the evidence in small italic text under the arrow. Mint background. Signature marker for testing: each relation is one line of the form 📍 from ➡️ to.",
+    "prompt": "Render each relation as one line that starts with 📍, then the from text in bold, then ➡️, then the to text in bold. Put the evidence on the next indented line in italics. Keep the relation order. Style only the blocks of this form. Keep every block, title, order, fact, status, owner, date, number and evidence reference exactly as supplied. Never invent content, never add or drop items, and never show or cite the reference image.",
+    "referenceImage": {
+      "assetId": "route-arrow-ribbons",
+      "alt": "Rows of a solid green pill, a wide green arrow ribbon and an outlined pill, with small evidence text under each arrow."
+    }
+  }
+}

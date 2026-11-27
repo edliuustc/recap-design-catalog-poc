@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "recap-component/2.0",
+  "id": "set-tile-grid",
+  "version": "1.0.0",
+  "status": "approved",
+  "form": "set",
+  "renderGuidance": {
+    "description": "Membership Tile Grid. Members are equal square tiles in a three-column grid, each with an icon block, a bold label, short detail and a colored corner badge for status. Soft indigo background. Signature marker for testing: the grid is a three-column Markdown table and every tile label starts with 🔷.",
+    "prompt": "Render members as a Markdown table with three columns and no meaningful header text, using a single row of  ·  placeholders as the header. Fill cells left to right in member order. Each cell holds 🔷 and the bold label, then the detail after a dash, then the status in parentheses when present. Leave unused trailing cells empty. Style only the blocks of this form. Keep every block, title, order, fact, status, owner, date, number and evidence reference exactly as supplied. Never invent content, never add or drop items, and never show or cite the reference image.",
+    "referenceImage": {
+      "assetId": "set-tile-grid",
+      "alt": "A three-column grid of equal indigo tiles, each with an icon block, a bold label, short detail lines and a colored status corner badge."
+    }
+  }
+}

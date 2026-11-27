@@ -212,8 +212,6 @@ def create_valid_tree(root):
     )
     (root / "scripts" / "validate_catalog.py").write_text("# fixture\n", encoding="utf-8")
     (root / "tests" / "test_validate_catalog.py").write_text("# fixture\n", encoding="utf-8")
-    (root / "README.md").write_text("Synthetic recap design catalog.\n", encoding="utf-8")
-    (root / "SECURITY.md").write_text("Report issues without sensitive data.\n", encoding="utf-8")
     (root / ".github" / "workflows" / "validate.yml").write_text(
         "name: validate\n", encoding="utf-8"
     )
@@ -677,7 +675,6 @@ class CatalogValidationTests(unittest.TestCase):
             "schemas/design.schema.json",
             "scripts/validate_catalog.py",
             ".github/workflows/validate.yml",
-            "README.md",
         ):
             attribute = subprocess.check_output(
                 ["git", "check-attr", "eol", "--", relative],
@@ -690,6 +687,11 @@ class CatalogValidationTests(unittest.TestCase):
         self.assertFalse((ROOT / ".github/CODEOWNERS").exists())
         self.assertNotIn(".github/CODEOWNERS", self.validator.REQUIRED_PATHS)
         self.assertFalse(self.validator.is_allowed_path(".github/CODEOWNERS"))
+
+    def test_repository_has_no_documents(self):
+        for relative in ("README.md", "SECURITY.md", "docs/notes.md"):
+            self.assertFalse(self.validator.is_allowed_path(relative), relative)
+        self.assertEqual([], sorted(p.name for p in ROOT.glob("*.md")))
 
     def test_closed_schemas(self):
         temporary, root = self.with_tree()
@@ -730,7 +732,7 @@ class CatalogValidationTests(unittest.TestCase):
         (root / "notes.txt").unlink()
         if hasattr(os, "symlink"):
             try:
-                os.symlink(root / "README.md", root / "linked.md")
+                os.symlink(root / "scripts" / "validate_catalog.py", root / "linked.md")
             except OSError:
                 self.skipTest("symlink creation is unavailable")
             self.assert_invalid(root, "symlink")
@@ -742,9 +744,6 @@ class CatalogValidationTests(unittest.TestCase):
             "ssh:" + "//private.invalid/repo",
             "person" + "@example.test",
             "12345678" + "-1234-4234-9234-123456789abc",
-            "gim" + "-home",
-            "GIM" + "-HOME",
-            "SOX" + "-Design-Workspace",
             "dev." + "azure.com",
             "BEGIN " + "PRIVATE KEY",
             "-----BEGIN " + "RSA PRIVATE KEY-----",
@@ -756,7 +755,9 @@ class CatalogValidationTests(unittest.TestCase):
             with self.subTest(value=value[:8]):
                 temporary, root = self.with_tree()
                 try:
-                    (root / "SECURITY.md").write_text(value + "\n", encoding="utf-8")
+                    (root / "scripts" / "validate_catalog.py").write_text(
+                        value + "\n", encoding="utf-8"
+                    )
                     self.assert_invalid(root, "forbidden")
                 finally:
                     temporary.cleanup()
@@ -780,43 +781,22 @@ class CatalogValidationTests(unittest.TestCase):
             "[label" + inline + "<>)",
             "[label][target]\n[target" + definition + " <>",
             "[foo\\]" + definition + " ./private/escaped-label",
-            "[legacy"
+            "[catalog"
             + inline
             + "https:"
-            + "//github.com/"
-            + "edliu_"
-            + "microsoft/recap-design-catalog-poc)",
+            + "//github.com/edliuustc/recap-design-catalog-poc)",
+            "[catalog" + inline + "./catalog/current.json)",
         ]
         for text in forbidden_destinations:
             with self.subTest(text=text[:16]):
                 temporary, root = self.with_tree()
                 try:
-                    (root / "SECURITY.md").write_text(text + "\n", encoding="utf-8")
+                    (root / "scripts" / "validate_catalog.py").write_text(
+                        text + "\n", encoding="utf-8"
+                    )
                     self.assert_invalid(root, "forbidden")
                 finally:
                     temporary.cleanup()
-
-        temporary, root = self.with_tree()
-        self.addCleanup(temporary.cleanup)
-        allowed = "https:" + "//github.com/edliuustc/recap-design-catalog-poc"
-        for angle_destination in (
-            "[catalog" + inline + f"<{allowed}>)",
-            "[catalog" + inline + f"< {allowed} >)",
-        ):
-            temporary_angle, root_angle = self.with_tree()
-            try:
-                (root_angle / "README.md").write_text(
-                    angle_destination + "\n",
-                    encoding="utf-8",
-                )
-                self.assert_invalid(root_angle, "destination")
-            finally:
-                temporary_angle.cleanup()
-        (root / "README.md").write_text(
-            "[catalog" + inline + f"{allowed})\n",
-            encoding="utf-8",
-        )
-        self.validator.validate_repository(root)
 
     def test_forbidden_empty_directory_and_orphan_design(self):
         temporary, root = self.with_tree()
@@ -837,10 +817,10 @@ class CatalogValidationTests(unittest.TestCase):
         self._git(root, "add", ".")
         self._git(root, "commit", "-m", "base")
         base = self._git(root, "rev-parse", "HEAD").strip()
-        readme = root / "README.md"
-        readme.write_text("Synthetic recap design catalog.\nUpdated.\n", encoding="utf-8")
-        self._git(root, "add", "README.md")
-        self._git(root, "commit", "-m", "docs")
+        workflow = root / ".github" / "workflows" / "validate.yml"
+        workflow.write_text("name: validate\n# updated\n", encoding="utf-8")
+        self._git(root, "add", ".github/workflows/validate.yml")
+        self._git(root, "commit", "-m", "tooling")
         self.validator.validate_repository(root, base_ref=base)
         design_path = root / "catalog/releases/v001/designs/status-actions/design.json"
         design_path.write_text(design_path.read_text() + " ", encoding="utf-8")
@@ -900,8 +880,8 @@ class CatalogValidationTests(unittest.TestCase):
         self._git(root, "add", ".")
         self._git(root, "commit", "-m", "legacy")
         base = self._git(root, "rev-parse", "HEAD").strip()
-        (root / "README.md").write_text("second commit\n", encoding="utf-8")
-        self._git(root, "add", "README.md")
+        (root / "second.txt").write_text("second commit\n", encoding="utf-8")
+        self._git(root, "add", "second.txt")
         self._git(root, "commit", "-m", "branch")
 
         manifest_path = release / "manifest.json"
@@ -947,20 +927,7 @@ class CatalogValidationTests(unittest.TestCase):
                 with self.assertRaises(self.validator.ValidationError):
                     self.validator.validate_immutable_releases(root, "main")
 
-    def test_readme_documents_sole_migration_exception_and_production_gate(self):
-        readme = (ROOT / "README.md").read_text(encoding="utf-8")
-        lowered = " ".join(readme.lower().split())
-        self.assertIn(
-            "c4213d051263810bbdfa0793d2d8f2192258ed50",
-            readme,
-        )
-        self.assertIn("sole historical immutability exception", lowered)
-        self.assertIn("sox recap team", lowered)
-        self.assertIn("team codeowners", lowered)
-        self.assertIn("independent code-owner approval", lowered)
-        self.assertIn("must not be enabled", lowered)
-
-    def test_examples_match_plugin_contract(self):
+    def test_examples_match_catalog_contract(self):
         manifest_entry = {
             "id": "status-actions",
             "path": "designs/status-actions/design.json",

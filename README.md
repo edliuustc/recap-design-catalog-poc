@@ -53,9 +53,8 @@ an existing release.
 
 ## Temporary governance
 
-The personal-account POC protects `main` with pull requests and the required
-validation workflow. It temporarily requires zero approvals and has no
-CODEOWNERS file.
+All changes to `main` must go through a pull request and require approval from
+the repository owner before merging.
 
 The production/team gate requires migration to the SOX Recap team organization
 repository and a team CODEOWNERS entry. Independent code-owner approval must be

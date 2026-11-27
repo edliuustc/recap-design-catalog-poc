@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "recap-component/2.0",
+  "id": "ideation-sticky-wall",
+  "version": "1.0.0",
+  "status": "approved",
+  "form": "ideation",
+  "renderGuidance": {
+    "description": "Idea Wall. Ideas appear as bright sticky notes on a dark board, clustered under group labels. Each note holds one idea in short text. Recorded groups become cluster headings. Evaluation criteria sit in a small lens strip, and the convergence outcome is a target ring labelled SHORTLIST when ideas were narrowed. Signature marker for testing: each idea starts with the sticky note emoji 🟨, groups start with 🗂️ and the convergence line starts with 🎯.",
+    "prompt": "List ideas as notes that start with 🟨, keeping their original text. When groups exist, show each group as a bold heading line starting with 🗂️ and place its member notes under it; keep ungrouped notes in a final list. Show criteria on one line starting with 🔎 *Lens —*. Show convergence on its own line starting with 🎯 and the convergence text exactly; never imply a selection that the block does not record. Style only the blocks of this form. Keep every block, title, order, fact, status, owner, date, number and evidence reference exactly as supplied. Never invent content, never add or drop items, and never show or cite the reference image.",
+    "referenceImage": {
+      "assetId": "ideation-sticky-wall",
+      "alt": "Bright sticky notes on a dark board, grouped into clusters, with a red target ring labelled SHORTLIST for the convergence outcome."
+    }
+  }
+}

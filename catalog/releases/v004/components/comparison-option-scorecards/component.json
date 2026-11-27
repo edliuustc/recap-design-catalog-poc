@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "recap-component/2.0",
+  "id": "comparison-option-scorecards",
+  "version": "1.0.0",
+  "status": "approved",
+  "form": "comparison",
+  "renderGuidance": {
+    "description": "Option Scorecards. Options sit side by side as equal-width columns, each with a solid colored header band holding the option title. Inside each column, a PROS list uses green plus marks and a CONS list uses red minus marks; an outcome ribbon sits at the bottom of the column. The comparison question is shown once above the columns as a bold lead line. Signature marker for testing: the question line starts with ⚖️ and pros and cons rows start with ➕ and ➖.",
+    "prompt": "Show the question first as a bold line that starts with ⚖️. Prefer one Markdown table with one column per option, using the option titles as headers, and rows named Pros, Cons and Outcome. In the cells, prefix each pro with ➕ and each con with ➖ and separate multiple entries with a line break tag only when the host supports it, otherwise with a semicolon. If the table would be too wide, use one card per option in the same order with the same rows. Leave a cell as a dash when a field is absent. Style only the blocks of this form. Keep every block, title, order, fact, status, owner, date, number and evidence reference exactly as supplied. Never invent content, never add or drop items, and never show or cite the reference image.",
+    "referenceImage": {
+      "assetId": "comparison-option-scorecards",
+      "alt": "Two to four side-by-side option columns with colored header bands, green plus pros, red minus cons and an outcome ribbon at the bottom of each column."
+    }
+  }
+}

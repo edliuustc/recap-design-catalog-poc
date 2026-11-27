@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "recap-component/2.0",
+  "id": "qa-chat-bubbles",
+  "version": "1.0.0",
+  "status": "approved",
+  "form": "qa",
+  "renderGuidance": {
+    "description": "Chat Bubbles. Questions are white bubbles on the left and answers are light green bubbles on the right, like a messaging thread. A question with no recorded answer gets a dashed empty bubble reading no answer recorded. Signature marker for testing: questions start with 🙋, answers start with 💬, and an unanswered question shows ❔ *No answer recorded*.",
+    "prompt": "Render each pair as two lines. The first starts with 🙋 and the question in bold. The second starts with 💬 and the answer exactly as supplied; when the answer is null, write ❔ *No answer recorded* instead and never guess one. Leave a blank line between pairs. Style only the blocks of this form. Keep every block, title, order, fact, status, owner, date, number and evidence reference exactly as supplied. Never invent content, never add or drop items, and never show or cite the reference image.",
+    "referenceImage": {
+      "assetId": "qa-chat-bubbles",
+      "alt": "A messaging thread with white question bubbles on the left, green answer bubbles on the right and a dashed bubble for an unanswered question."
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "recap-component/2.0",
+  "id": "points-numbered-rail",
+  "version": "1.0.0",
+  "status": "approved",
+  "form": "points",
+  "renderGuidance": {
+    "description": "Numbered Margin Rail. Claims are numbered with large purple circled numerals in a grey left margin rail, one claim per row separated by hairlines. Signature marker for testing: claims are numbered with circled digits ① ② ③ and onward instead of bullets.",
+    "prompt": "Render each claim on its own line starting with the circled digit for its position, ① for the first, ② for the second and so on up to ⑳, then the claim text. Use plain numbers in parentheses after twenty. Keep the existing order. Style only the blocks of this form. Keep every block, title, order, fact, status, owner, date, number and evidence reference exactly as supplied. Never invent content, never add or drop items, and never show or cite the reference image.",
+    "referenceImage": {
+      "assetId": "points-numbered-rail",
+      "alt": "Large purple circled numerals in a grey left margin rail, each followed by one bold claim line and a hairline divider."
+    }
+  }
+}

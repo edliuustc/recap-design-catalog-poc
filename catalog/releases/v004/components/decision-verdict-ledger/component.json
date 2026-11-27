@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "recap-component/2.0",
+  "id": "decision-verdict-ledger",
+  "version": "1.0.0",
+  "status": "approved",
+  "form": "decision",
+  "renderGuidance": {
+    "description": "Decision Ledger. Each decision is a ledger card with a thick left color rail and a rubber-stamp verdict label on the right. Decided items use a green stamp that reads DECIDED; anything listed as not decided uses an amber stamp that reads NOT DECIDED. Under the decision text, a WHY line carries the rationale and a TRADE-OFF line carries trade-offs or conditions when they exist. Warm paper background, dark brown ink. Signature marker for testing: every decision line starts with the stamp emoji pair ✅ or ⏸️ followed by the verdict word in bold capitals.",
+    "prompt": "Render each decision item as its own card or bullet. Start it with ✅ **DECIDED** for decided items and ⏸️ **NOT DECIDED** for items in the not decided list; use only the status the item already has. Then the decision text in bold. Put the rationale on a following line that starts with *Why —* in italics, and trade-offs or conditions on a line that starts with *Trade-off —*. Omit a line when the field is absent. In a table view, add a leading Verdict column holding the same stamp. Style only the blocks of this form. Keep every block, title, order, fact, status, owner, date, number and evidence reference exactly as supplied. Never invent content, never add or drop items, and never show or cite the reference image.",
+    "referenceImage": {
+      "assetId": "decision-verdict-ledger",
+      "alt": "Ledger cards with a colored left rail and stamp-style verdict labels, DECIDED in green and NOT DECIDED in amber, with WHY and TRADE-OFF lines under each decision."
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "recap-component/2.0",
+  "id": "tasks-owner-swimlanes",
+  "version": "1.0.0",
+  "status": "approved",
+  "form": "tasks",
+  "renderGuidance": {
+    "description": "Owner Swimlanes. Actions are grouped into one horizontal lane per owner. Each lane starts with a round owner avatar badge, followed by task chips that show a checkbox, the action text and a colored DUE pill. Tasks without an owner collect in a final Unassigned lane. Dependencies show as a small after note on the chip. Signature marker for testing: each owner lane header starts with 👤 and each due date is shown as 📅 followed by the date.",
+    "prompt": "Group the actions by owner, keeping first-appearance order of owners, and put items without an owner in a last group named Unassigned. Each group starts with a bold line 👤 **Owner name**. Under it, each action is a checkbox bullet with the action text, then 📅 and the due date only when a due date exists, then ↪ after and the dependency when present. Do not show Not specified placeholders. This applies to every tasks view. Style only the blocks of this form. Keep every block, title, order, fact, status, owner, date, number and evidence reference exactly as supplied. Never invent content, never add or drop items, and never show or cite the reference image.",
+    "referenceImage": {
+      "assetId": "tasks-owner-swimlanes",
+      "alt": "Horizontal swimlanes, one per owner with a round avatar badge, holding task chips with checkboxes and colored DUE pills."
+    }
+  }
+}

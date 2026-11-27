@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "recap-component/2.0",
+  "id": "sequence-metro-line",
+  "version": "1.0.0",
+  "status": "approved",
+  "form": "sequence",
+  "renderGuidance": {
+    "description": "Metro Line Timeline. Steps are stations on one thick green line. Filled stations are done, a red outlined station marks the current step, hollow stations are upcoming, and a yellow diamond marks a decision point. Station labels carry the step title; owner, timing and nested tasks hang below each station in small grey text. Signature marker for testing: each step starts with a station glyph, 🟢 for done, 🔴 for in progress, ⚪ for not started and 🔶 for a decision point, joined visually by a vertical rail line.",
+    "prompt": "Render steps in order as a vertical metro line. Each step is one line that starts with the station glyph for its existing status: 🟢 done, 🔴 in progress, ⚪ not started or unknown, and 🔶 when the step is a decision point. Follow with the step title in bold, then owner and when separated by a middle dot when present. Put detail and nested tasks as indented sub-bullets. Between steps use a short line containing only ┃ to draw the rail. Style only the blocks of this form. Keep every block, title, order, fact, status, owner, date, number and evidence reference exactly as supplied. Never invent content, never add or drop items, and never show or cite the reference image.",
+    "referenceImage": {
+      "assetId": "sequence-metro-line",
+      "alt": "A thick green metro line with stations as steps, filled for done, red outline for now, hollow for upcoming and a yellow diamond for a decision point."
+    }
+  }
+}

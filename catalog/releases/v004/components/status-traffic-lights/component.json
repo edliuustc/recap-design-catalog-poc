@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "recap-component/2.0",
+  "id": "status-traffic-lights",
+  "version": "1.0.0",
+  "status": "approved",
+  "form": "status_table",
+  "renderGuidance": {
+    "description": "Traffic-Light Status Board. A table whose first column is a lamp: green for on track or done, amber for at risk, red for blocked or off track, grey for unknown. The item name is bold, the status appears as a colored chip and the detail follows in muted text. Rows are zebra striped. Signature marker for testing: the first column header is 🚦 and every row starts with 🟢, 🟡, 🔴 or ⚪ matching its existing status.",
+    "prompt": "Render one Markdown table with columns 🚦, Item, Status and Detail. Fill the 🚦 cell from the row's existing status only: 🟢 for positive or complete, 🟡 for at risk or partial, 🔴 for blocked or negative, ⚪ when unclear. Make the item bold and keep the status wording unchanged. Keep row order. Style only the blocks of this form. Keep every block, title, order, fact, status, owner, date, number and evidence reference exactly as supplied. Never invent content, never add or drop items, and never show or cite the reference image.",
+    "referenceImage": {
+      "assetId": "status-traffic-lights",
+      "alt": "A dark lamp column with green, amber, red and grey lights beside bold item names, colored status chips and muted detail text on zebra rows."
+    }
+  }
+}

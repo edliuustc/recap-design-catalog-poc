@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "recap-component/2.0",
+  "id": "findings-research-board",
+  "version": "1.0.0",
+  "status": "approved",
+  "form": "findings",
+  "renderGuidance": {
+    "description": "Research Board. Observations are white cards with a teal quote rail and an oversized quotation mark; supporting quotes sit inside the rail. Interpretations are amber sticky panels set apart from observations so readers never confuse evidence with reading. The basis line is italic at the top. Signature marker for testing: observations start with 🔍 **Observation** and interpretations start with 💡 **Interpretation**.",
+    "prompt": "Show the basis first as one italic line. Render each item in order. Observation items start with 🔍 **Observation** followed by the text, and their quote, when present, appears on the next line as a block quote. Interpretation items start with 💡 **Interpretation** and must stay visually separate from observations. Never turn an interpretation into an observation. Style only the blocks of this form. Keep every block, title, order, fact, status, owner, date, number and evidence reference exactly as supplied. Never invent content, never add or drop items, and never show or cite the reference image.",
+    "referenceImage": {
+      "assetId": "findings-research-board",
+      "alt": "White observation cards with a teal quote rail and large quotation mark, plus an amber interpretation panel kept apart from the evidence."
+    }
+  }
+}

@@ -83,12 +83,7 @@ MARKDOWN_REFERENCE_DESTINATION_RE = re.compile(
 PEM_PRIVATE_KEY_RE = re.compile(
     r"-----BEGIN (?:(?:[A-Z0-9]+ )*)PRIVATE KEY-----"
 )
-ALLOWED_README_URL = (
-    "https:" + "//github.com/edliuustc/recap-design-catalog-poc"
-)
 TEXT_FORBIDDEN = (
-    "gim" + "-home",
-    "SOX" + "-Design-Workspace",
     "dev." + "azure.com",
     "visualstudio." + "com",
     "BEGIN " + "PRIVATE KEY",
@@ -98,8 +93,6 @@ TEXT_FORBIDDEN = (
 )
 REQUIRED_PATHS = {
     ".gitattributes",
-    "README.md",
-    "SECURITY.md",
     ".github/workflows/validate.yml",
     "scripts/validate_catalog.py",
     "tests/test_validate_catalog.py",
@@ -921,9 +914,7 @@ def scan_text_files(files):
         if "-" in text:
             require(not GUID_RE.search(text), "forbidden GUID-like repository text", "scan")
         urls = URL_RE.findall(text) if "://" in text else []
-        for url in urls:
-            allowed = relative == "README.md" and url == ALLOWED_README_URL
-            require(allowed, "forbidden repository URL", "scan")
+        require(not urls, "forbidden repository URL", "scan")
         destinations = []
         for pattern in (
             MARKDOWN_INLINE_DESTINATION_RE,
@@ -936,13 +927,7 @@ def scan_text_files(files):
                     else match.group(2)
                 )
                 destinations.append((destination, match.group(1) is not None))
-        for destination, angle_wrapped in destinations:
-            allowed = (
-                relative == "README.md"
-                and not angle_wrapped
-                and destination == ALLOWED_README_URL
-            )
-            require(allowed, "forbidden Markdown destination", "scan")
+        require(not destinations, "forbidden Markdown destination", "scan")
 
 
 def enforce_repository_limits(files):

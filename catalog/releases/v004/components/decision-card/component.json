@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "recap-component/2.0",
+  "id": "decision-card",
+  "version": "1.0.0",
+  "status": "approved",
+  "form": "decision",
+  "renderGuidance": {
+    "description": "Test data. A decision card that states the outcome first and the supporting reason second.",
+    "prompt": "Lead with the decided outcome in one sentence, then list the grounded reasons. Do not invent alternatives that were not discussed."
+  }
+}

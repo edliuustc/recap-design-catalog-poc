@@ -40,6 +40,8 @@ FORMS = (
     "open_questions",
     "points",
 )
+COMPONENT_RELEASE_SCHEMA = "recap-design-release/2.0"
+COMPONENT_SCHEMA = "recap-component/2.0"
 RELEASE_RE = re.compile(r"^v(?!000)[0-9]{3}$")
 DESIGN_RE = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 VERSION_RE = re.compile(r"^[1-9][0-9]*\.[0-9]+\.[0-9]+$")
@@ -99,6 +101,8 @@ REQUIRED_PATHS = {
     "schemas/catalog-pointer.schema.json",
     "schemas/release.schema.json",
     "schemas/design.schema.json",
+    "schemas/component-release.schema.json",
+    "schemas/component.schema.json",
     "catalog/current.json",
     "examples/summit-readiness-request.json",
     "examples/summit-readiness-response.json",
@@ -107,6 +111,8 @@ SCHEMA_HASHES = {
     "catalog-pointer.schema.json": "5a0b13bc18d78ef2ff4cb90794a14396c624a6bfc8a6d3208afbd9aa990dda73",
     "release.schema.json": "57ad87d7531168289f48308e81d481583e4206b9737e0f834b9ccf4c7bd431c4",
     "design.schema.json": "e406099224557eabee68911a975c8d31df75ff77a7b1dda788873732705e5649",
+    "component-release.schema.json": "343979b94bd59c467a00e71c93fa264e226b98c6bbdbdea2c59d96797b4cf720",
+    "component.schema.json": "0a55b412d556e97d7e1ad3e7829929a4c281a94e6f7212d34f55175fa9ff0b37",
 }
 LF_HASH_MIGRATION_MANIFEST_PATH = "catalog/releases/v001/manifest.json"
 REVIEWED_BOOTSTRAP_COMMIT = "c4213d051263810bbdfa0793d2d8f2192258ed50"
@@ -274,7 +280,93 @@ def validate_pointer_shape(pointer):
         require(previous != pointer["current"], "previous release must differ")
 
 
+def validate_component_path(component_id, value):
+    require(isinstance(value, str), "component path must be a string", "path")
+    require(
+        value == f"components/{component_id}/component.json",
+        "component path mismatch",
+        "path",
+    )
+
+
+def validate_manifest_assets(assets, asset_paths):
+    require(
+        isinstance(assets, list) and len(assets) <= 1,
+        "invalid manifest assets",
+    )
+    asset_ids = set()
+    for asset in assets:
+        exact_keys(
+            asset,
+            ("id", "path", "sha256", "mimeType", "byteLength", "width", "height"),
+            "manifest asset",
+        )
+        validate_design_id(asset["id"])
+        require(asset["id"] not in asset_ids, "duplicate asset id")
+        asset_ids.add(asset["id"])
+        validate_asset_path(asset["id"], asset["path"])
+        require(asset["path"] not in asset_paths, "duplicate asset path")
+        asset_paths.add(asset["path"])
+        require(
+            isinstance(asset["sha256"], str) and SHA_RE.fullmatch(asset["sha256"]),
+            "invalid asset hash",
+        )
+        require(asset["mimeType"] == "image/png", "invalid asset MIME type")
+        require(
+            type(asset["byteLength"]) is int
+            and 1 <= asset["byteLength"] <= IMAGE_LIMIT,
+            "invalid asset byte length",
+        )
+        width, height = asset["width"], asset["height"]
+        require(
+            type(width) is int
+            and type(height) is int
+            and 256 <= width <= 2048
+            and 256 <= height <= 2048
+            and width * height <= 3_145_728,
+            "invalid asset dimensions",
+        )
+
+
+def manifest_entries(manifest):
+    if manifest["schemaVersion"] == COMPONENT_RELEASE_SCHEMA:
+        return manifest["components"]
+    return manifest["designs"]
+
+
+def validate_component_manifest_shape(manifest):
+    exact_keys(
+        manifest,
+        ("schemaVersion", "id", "status", "components"),
+        "manifest",
+    )
+    validate_release_id(manifest["id"])
+    require(manifest["status"] == "approved", "release is not approved")
+    components = manifest["components"]
+    require(
+        isinstance(components, list) and 1 <= len(components) <= len(FORMS),
+        "invalid component count",
+    )
+    seen = set()
+    asset_paths = set()
+    for entry in components:
+        exact_keys(entry, ("id", "path", "sha256", "assets"), "manifest component")
+        validate_design_id(entry["id"])
+        require(entry["id"] not in seen, "duplicate component id")
+        seen.add(entry["id"])
+        validate_component_path(entry["id"], entry["path"])
+        require(
+            isinstance(entry["sha256"], str) and SHA_RE.fullmatch(entry["sha256"]),
+            "invalid component hash",
+        )
+        validate_manifest_assets(entry["assets"], asset_paths)
+    return COMPONENT_RELEASE_SCHEMA
+
+
 def validate_manifest_shape(manifest):
+    require(isinstance(manifest, dict), "manifest must be an object")
+    if manifest.get("schemaVersion") == COMPONENT_RELEASE_SCHEMA:
+        return validate_component_manifest_shape(manifest)
     exact_keys(manifest, ("schemaVersion", "id", "status", "designs"), "manifest")
     schema = manifest["schemaVersion"]
     require(
@@ -304,43 +396,7 @@ def validate_manifest_shape(manifest):
             "invalid design hash",
         )
         if schema == "recap-design-release/1.1":
-            assets = entry["assets"]
-            require(
-                isinstance(assets, list) and len(assets) <= 1,
-                "invalid manifest assets",
-            )
-            asset_ids = set()
-            for asset in assets:
-                exact_keys(
-                    asset,
-                    ("id", "path", "sha256", "mimeType", "byteLength", "width", "height"),
-                    "manifest asset",
-                )
-                validate_design_id(asset["id"])
-                require(asset["id"] not in asset_ids, "duplicate asset id")
-                asset_ids.add(asset["id"])
-                validate_asset_path(asset["id"], asset["path"])
-                require(asset["path"] not in asset_paths, "duplicate asset path")
-                asset_paths.add(asset["path"])
-                require(
-                    isinstance(asset["sha256"], str) and SHA_RE.fullmatch(asset["sha256"]),
-                    "invalid asset hash",
-                )
-                require(asset["mimeType"] == "image/png", "invalid asset MIME type")
-                require(
-                    type(asset["byteLength"]) is int
-                    and 1 <= asset["byteLength"] <= IMAGE_LIMIT,
-                    "invalid asset byte length",
-                )
-                width, height = asset["width"], asset["height"]
-                require(
-                    type(width) is int
-                    and type(height) is int
-                    and 256 <= width <= 2048
-                    and 256 <= height <= 2048
-                    and width * height <= 3_145_728,
-                    "invalid asset dimensions",
-                )
+            validate_manifest_assets(entry["assets"], asset_paths)
     return schema
 
 
@@ -467,25 +523,55 @@ def validate_design_shape(design):
         require(remaining_count == 1, "profile must have one remaining rule")
     reference_asset_id = None
     if schema == "recap-design/1.1":
-        guidance = design["renderGuidance"]
-        require(isinstance(guidance, dict), "renderGuidance must be an object")
-        has_image = "referenceImage" in guidance
-        exact_keys(
-            guidance,
-            ("description", "prompt", "referenceImage")
-            if has_image
-            else ("description", "prompt"),
-            "renderGuidance",
-        )
-        validate_guidance(guidance["description"], 4000, "description")
-        validate_guidance(guidance["prompt"], 4000, "prompt")
-        if has_image:
-            image = guidance["referenceImage"]
-            exact_keys(image, ("assetId", "alt"), "referenceImage")
-            validate_design_id(image["assetId"])
-            validate_guidance(image["alt"], 240, "image alt")
-            reference_asset_id = image["assetId"]
+        reference_asset_id = validate_render_guidance(design["renderGuidance"])
     return schema, reference_asset_id
+
+
+def validate_render_guidance(guidance):
+    require(isinstance(guidance, dict), "renderGuidance must be an object")
+    has_image = "referenceImage" in guidance
+    exact_keys(
+        guidance,
+        ("description", "prompt", "referenceImage")
+        if has_image
+        else ("description", "prompt"),
+        "renderGuidance",
+    )
+    validate_guidance(guidance["description"], 4000, "description")
+    validate_guidance(guidance["prompt"], 4000, "prompt")
+    if not has_image:
+        return None
+    image = guidance["referenceImage"]
+    exact_keys(image, ("assetId", "alt"), "referenceImage")
+    validate_design_id(image["assetId"])
+    validate_guidance(image["alt"], 240, "image alt")
+    return image["assetId"]
+
+
+def validate_component_shape(component):
+    require(isinstance(component, dict), "component must be an object")
+    exact_keys(
+        component,
+        ("schemaVersion", "id", "version", "status", "form", "renderGuidance"),
+        "component",
+    )
+    require(
+        component["schemaVersion"] == COMPONENT_SCHEMA,
+        "unsupported component schema",
+        "schema",
+    )
+    validate_design_id(component["id"])
+    require(
+        isinstance(component["version"], str)
+        and VERSION_RE.fullmatch(component["version"]),
+        "invalid component version",
+    )
+    require(component["status"] == "approved", "component is not approved")
+    require(
+        isinstance(component["form"], str) and component["form"] in FORMS,
+        "invalid component form",
+    )
+    return component["form"], validate_render_guidance(component["renderGuidance"])
 
 
 def validate_request(request):
@@ -814,6 +900,12 @@ def is_allowed_path(relative):
         relative,
     ):
         return True
+    if re.fullmatch(
+        r"catalog/releases/v(?!000)[0-9]{3}/components/"
+        r"[a-z][a-z0-9-]{0,63}/component\.json",
+        relative,
+    ):
+        return True
     return bool(
         re.fullmatch(
             r"catalog/releases/v(?!000)[0-9]{3}/designs/"
@@ -839,6 +931,12 @@ def is_allowed_directory(relative):
         re.fullmatch(r"catalog/releases/v(?!000)[0-9]{3}", relative)
         or re.fullmatch(r"catalog/releases/v(?!000)[0-9]{3}/designs", relative)
         or re.fullmatch(r"catalog/releases/v(?!000)[0-9]{3}/assets", relative)
+        or re.fullmatch(r"catalog/releases/v(?!000)[0-9]{3}/components", relative)
+        or re.fullmatch(
+            r"catalog/releases/v(?!000)[0-9]{3}/components/"
+            r"[a-z][a-z0-9-]{0,63}",
+            relative,
+        )
         or re.fullmatch(
             r"catalog/releases/v(?!000)[0-9]{3}/designs/"
             r"[a-z][a-z0-9-]{0,63}",
@@ -953,6 +1051,10 @@ def json_file_policy(relative):
         r"catalog/releases/v(?!000)[0-9]{3}/designs/"
         r"[a-z][a-z0-9-]{0,63}/design\.json",
         relative,
+    ) or re.fullmatch(
+        r"catalog/releases/v(?!000)[0-9]{3}/components/"
+        r"[a-z][a-z0-9-]{0,63}/component\.json",
+        relative,
     ):
         return DESIGN_LIMIT, MAX_DEPTH
     if relative.startswith("examples/"):
@@ -1013,6 +1115,35 @@ def validate_schema_artifacts(root):
         and design["properties"]["appliesWhen"].get("additionalProperties") is False
         and design["properties"]["profiles"].get("additionalProperties") is False,
         "schema artifact design grammar is incomplete",
+        "schema",
+    )
+    component_release = load_json(
+        root / "schemas/component-release.schema.json",
+        SCHEMA_LIMIT,
+        SCHEMA_MAX_DEPTH,
+    )
+    component = load_json(
+        root / "schemas/component.schema.json",
+        SCHEMA_LIMIT,
+        SCHEMA_MAX_DEPTH,
+    )
+    for schema in (component_release, component):
+        require(
+            isinstance(schema, dict)
+            and schema.get("type") == "object"
+            and schema.get("additionalProperties") is False
+            and isinstance(schema.get("required"), list)
+            and isinstance(schema.get("properties"), dict),
+            "schema artifact is incomplete",
+            "schema",
+        )
+    require(
+        isinstance(
+            component_release["properties"]["components"]["items"]["properties"]["path"].get("pattern"),
+            str,
+        )
+        and component["properties"]["form"].get("enum") == list(FORMS),
+        "schema artifact component grammar is incomplete",
         "schema",
     )
 
@@ -1176,6 +1307,79 @@ def validate_pointer_transition(root, pointer, base_ref):
         )
 
 
+def validate_component_release(release_directory, manifest, manifest_path, prior_components):
+    require(
+        not (release_directory / "designs").exists(),
+        "orphan or missing design file",
+    )
+    entries = manifest["components"]
+    expected_paths = {entry["path"] for entry in entries}
+    actual_paths = {
+        path.relative_to(release_directory).as_posix()
+        for path in (release_directory / "components").rglob("*")
+        if path.is_file() and not path.is_symlink()
+    } if (release_directory / "components").exists() else set()
+    require(actual_paths == expected_paths, "orphan or missing component file")
+    expected_asset_paths = {
+        asset["path"] for entry in entries for asset in entry["assets"]
+    }
+    assets_root = release_directory / "assets"
+    actual_asset_paths = (
+        {
+            path.relative_to(release_directory).as_posix()
+            for path in assets_root.rglob("*")
+            if path.is_file() and not path.is_symlink()
+        }
+        if assets_root.exists()
+        else set()
+    )
+    require(actual_asset_paths == expected_asset_paths, "orphan or missing asset file")
+    total_bytes = manifest_path.stat().st_size
+    forms = set()
+    for entry in entries:
+        component_path = release_directory / entry["path"]
+        require(
+            component_path.is_file() and not component_path.is_symlink(),
+            "component path missing",
+        )
+        total_bytes += component_path.stat().st_size
+        require(total_bytes <= RELEASE_LIMIT, "release byte limit exceeded", "limit")
+        digest = hashlib.sha256(component_path.read_bytes()).hexdigest()
+        require(digest == entry["sha256"], "component hash mismatch")
+        component = load_json(component_path, DESIGN_LIMIT)
+        form, reference_asset_id = validate_component_shape(component)
+        require(component["id"] == entry["id"], "component identity mismatch")
+        require(form not in forms, "duplicate component form")
+        forms.add(form)
+        prior = prior_components.get(component["id"])
+        if prior is not None and digest != prior["digest"]:
+            require(
+                version_tuple(component["version"]) > version_tuple(prior["version"]),
+                "changed component must increment its version",
+                "version",
+            )
+        prior_components[component["id"]] = {
+            "digest": digest,
+            "version": component["version"],
+        }
+        assets = entry["assets"]
+        require(
+            (not assets and reference_asset_id is None)
+            or (len(assets) == 1 and reference_asset_id == assets[0]["id"]),
+            "component asset reference mismatch",
+        )
+        for asset in assets:
+            asset_path = release_directory / asset["path"]
+            require(
+                asset_path.is_file() and not asset_path.is_symlink(),
+                "asset path missing",
+            )
+            total_bytes += asset_path.stat().st_size
+            require(total_bytes <= RELEASE_LIMIT, "release byte limit exceeded", "limit")
+            validate_png(asset_path, asset)
+    return len(entries), total_bytes
+
+
 def _validate_repository(root, base_ref=None):
     root = Path(root).resolve()
     files = repository_files(root)
@@ -1197,6 +1401,7 @@ def _validate_repository(root, base_ref=None):
         )
     release_summaries = {}
     prior_designs = {}
+    prior_components = {}
     releases_root = root / "catalog/releases"
     release_directories = sorted(path for path in releases_root.iterdir() if path.is_dir())
     require(bool(release_directories), "catalog has no releases")
@@ -1207,6 +1412,15 @@ def _validate_repository(root, base_ref=None):
         manifest = load_json(manifest_path, MANIFEST_LIMIT)
         manifest_schema = validate_manifest_shape(manifest)
         require(manifest["id"] == release_id, "release identity mismatch")
+        if manifest_schema == COMPONENT_RELEASE_SCHEMA:
+            release_summaries[release_id] = validate_component_release(
+                release_directory, manifest, manifest_path, prior_components
+            )
+            continue
+        require(
+            not (release_directory / "components").exists(),
+            "orphan or missing component file",
+        )
         total_bytes = manifest_path.stat().st_size
         designs = []
         expected_design_paths = {entry["path"] for entry in manifest["designs"]}
@@ -1320,6 +1534,11 @@ def _validate_repository(root, base_ref=None):
     current_manifest = load_json(
         root / "catalog/releases" / pointer["current"] / "manifest.json",
         MANIFEST_LIMIT,
+    )
+    require(
+        current_manifest["schemaVersion"] != COMPONENT_RELEASE_SCHEMA,
+        "publishing a component release requires a separately reviewed validator change",
+        "publication",
     )
     current_designs = {
         entry["id"]: load_json(

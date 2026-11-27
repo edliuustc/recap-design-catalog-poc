@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "recap-component/2.0",
+  "id": "tasks-card",
+  "version": "1.0.0",
+  "status": "approved",
+  "form": "tasks",
+  "renderGuidance": {
+    "description": "Test data. A compact action list where each row shows the owner, the action and the due date.",
+    "prompt": "Show each action as one row. Put the owner first, keep the action text short and show the due date only when it is grounded."
+  }
+}

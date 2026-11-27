@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "recap-design-release/2.0",
+  "id": "v004",
+  "status": "approved",
+  "components": [
+    {
+      "id": "tasks-card",
+      "path": "components/tasks-card/component.json",
+      "sha256": "8dcb8f551a60c11008c55b8aa61865106b991b157bfce8e459045cbbca5686fb",
+      "assets": []
+    },
+    {
+      "id": "decision-card",
+      "path": "components/decision-card/component.json",
+      "sha256": "d8b709af154cb4a78c7bd34393890adbbfba1ca22c06f1a30cb77eebcf1c2d3f",
+      "assets": []
+    },
+    {
+      "id": "sequence-flow",
+      "path": "components/sequence-flow/component.json",
+      "sha256": "af87c63062ca0325a55068a8938a99199ffbe0bd415df9f2b1ae9543a82654ac",
+      "assets": []
+    }
+  ]
+}
